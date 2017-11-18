@@ -105,12 +105,6 @@ PoisModel<-function(disease,exposure,datasetname,denominator){
      summary(fit)
 }
 
-lag.f<-function(vec,l=1){
-     n=length(vec)
-     missing=rep(NA,l)
-     newvec=c(missing,vec[1:(n-l)])
-     newvec
-}
 ```
 
 Now Let's analyze data using new data frame
@@ -128,12 +122,18 @@ for (jj in 1:length(SiteList)){
      tryCatch({ 
           tempname=alllist[iii,2]
           for (kkk in 0:2){
-               DF_temp=mutate(DF_temp, Expo=lag.f(DF_temp[,c(tempname)],kkk))
-               out1=PoisModel(alllist[iii,1],'Expo',DF_temp,alllist[iii,3])
+               DF_temp1 = DF_temp
+               DF_temp1$target_val = DF_temp1[,c(tempname)]
+               DF_temp2 = arrange(DF_temp1, Name, Age, date) %>% 
+                    group_by(Name, Age) %>%
+                    mutate(Expo = lag(target_val, n = kkk, default = NA)) %>% 
+                    ungroup() %>% 
+                    data.frame()
+               out1=PoisModel(alllist[iii,1],'Expo',DF_temp2,alllist[iii,3])
                temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,data.frame(t(out1$coefficients[2,])))
                colnames(temp)=c('Name','Outcome','Pollutant','Lag','Estimate','SE','t.val','p.val')
                Result.1st=rbind(Result.1st,temp)    #Pile results 
-               rm(temp,out1)
+               rm(DF_temp1, DF_temp2, temp, out1)
                }
      }, error=function(e){}) 
      }

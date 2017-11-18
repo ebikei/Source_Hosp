@@ -95,6 +95,7 @@ alllist$Exposure=as.character(alllist$Exposure)
 
 PoisModel<-function(disease,exposure,datasetname,denominator){
      covariates=c('DayIndex','Age','ns(meanapptemp,df.temp)','ns(day,df.day)')
+#     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')
      model=as.formula(paste(disease,"~",exposure,"+",paste(covariates,collapse="+"),
                             paste('+offset(log(',denominator,'))',sep='')))
      fit=glm(model,
@@ -105,12 +106,6 @@ PoisModel<-function(disease,exposure,datasetname,denominator){
      summary(fit)
 }
 
-lag.f<-function(vec,l=1){
-     n=length(vec)
-     missing=rep(NA,l)
-     newvec=c(missing,vec[1:(n-l)])
-     newvec
-}
 ```
 
 Now Let's analyze data using new data frame
@@ -127,8 +122,14 @@ for (jj in 1:length(SiteList)){
      tryCatch({ 
           tempname=alllist[iii,2]
           for (kkk in 0:2){
-               DF_temp=mutate(DF_temp, Expo=lag.f(DF_temp[,c(tempname)],kkk))
-               out1=PoisModel(alllist[iii,1],'Expo',DF_temp,alllist[iii,3])
+               DF_temp1 = DF_temp
+               DF_temp1$target_val = DF_temp1[,c(tempname)]
+               DF_temp2 = arrange(DF_temp1, Name, Age, date) %>% 
+                    group_by(Name, Age) %>%
+                    mutate(Expo = lag(target_val, n = kkk, default = NA)) %>% 
+                    ungroup() %>% 
+                    data.frame()
+               out1=PoisModel(alllist[iii,1],'Expo',DF_temp2,alllist[iii,3])
                temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,data.frame(t(out1$coefficients[2,])))
                colnames(temp)=c('Name','Outcome','Pollutant','Lag','Estimate','SE','t.val','p.val')
                Result.1st=rbind(Result.1st,temp)    #Pile results 
@@ -225,7 +226,7 @@ Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>%
      ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
      	geom_point(aes(),cex=3.25)+
-          scale_y_continuous(limits = c(0.97,1.03))+
+          scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -243,7 +244,7 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
      ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
      	geom_point(aes(),cex=3.25)+
-          scale_y_continuous(limits = c(0.97,1.03))+
+          scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -259,3 +260,35 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
 grid.arrange(Cardio, Resp, ncol=1)
 
 ```
+Plot Community Specific Estimates in which TLNise showed 
+```{r}
+Result.1st$Pollutant = as.character(Result.1st$Pollutant)
+filter(Result.1st, Outcome == 'Cardio', Pollutant == 'vehic') %>% 
+     left_join(Air,by='Pollutant') %>% 
+     mutate(Effect = exp(Estimate*IQR), 
+            LCI = exp((Estimate-1.96*SE)*IQR), 
+            UCI = exp((Estimate+1.96*SE)*IQR),
+            LineCol = case_when(Estimate < 0 & p.val < 0.05 ~ 'blue',
+                              Estimate < 0 & p.val < 0.10 ~ 'green',
+                              Estimate > 0 & p.val < 0.05 ~ 'red',
+                              Estimate > 0 & p.val < 0.10 ~ 'orange',
+                              TRUE ~ 'black'),
+            Lag = as.factor(as.character(Lag))) %>% 
+     ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
+     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
+     	geom_point(aes(),cex=3.25)+
+          scale_y_continuous(limits = c(0.95,1.1))+
+          facet_grid(.~Name)+
+     	geom_hline(yintercept=1,color='Black')+
+          ylab("OR per IQR increase")+
+          xlab("")+
+          ggtitle('Vehicle Emission Stratified by Site')+
+          theme_bw()+
+          scale_color_identity()+
+          theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
+                axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank())
+
+
+```
+
