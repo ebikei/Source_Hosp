@@ -95,8 +95,9 @@ alllist$Outcome=as.character(alllist$Outcome)
 alllist$Exposure=as.character(alllist$Exposure)
 
 PoisModel_int<-function(disease,datasetname,denominator){
- #    covariates=c('ExpoCool','ExpoWarm','DayIndex','Age','ns(meanapptemp,df.temp)','ns(day,df.day)')
+#     covariates=c('ExpoCool','ExpoWarm','DayIndex','Age','ns(meanapptemp,df.temp)','ns(day,df.day)')
      covariates=c('ExpoCool','ExpoWarm','DayIndex','Age','ns(meanapptemp,df.temp)','ns(coolday,16)','ns(warmday,16)')     
+#      covariates=c('ExpoCool','ExpoWarm','DayIndex','Age','ns(meanapptemp,df.temp)','ns(coolday,knot = c(45, 420, 780, 1145,  1510, 1875, 2240, 2605))','ns(warmday, knot = c(210, 575,  940, 1305, 1670, 2035, 2400, 2765))') 
      model=as.formula(paste(disease,"~",paste(covariates,collapse="+"),
                             paste('+offset(log(',denominator,'))',sep='')))
      fit=glm(model,
@@ -211,28 +212,73 @@ filter(tlnise.result2,LCI_Warm>1) %>% arrange(Effect_Warm) %>% select(Outcome, P
 ```
 
 ```{r}
-test = tlnise.result2 %>% 
-     select(Outcome, Pollutant, Lag, IQR, Effect_Cool, LCI_Cool, UCI_Cool, P_Cool, Effect_Warm, LCI_Warm, UCI_Warm, P_Warm) %>% 
-     reshape(varying=c('Effect_Cool','LCI_Cool','UCI_Cool','P_Cool','Effect_Warm','LCI_Warm','UCI_Warm','P_Warm'),v.names=c('Effect','LCI','UCI','P'), direction='long',timevar='Season',times=c('Cool','Warm'),idvar=c('Outcome','Pollutant','Lag','IQR')) %>% 
-     arrange(Outcome, Pollutant, Lag, Season)
 
-rownames(test)=c(1:dim(test)[1])
+Cool = tlnise.result2 %>% 
+     select(Outcome, Pollutant, Lag, IQR, Effect_Cool, LCI_Cool, UCI_Cool, P_Cool) %>%
+     rename(PE=Effect_Cool, LCI=LCI_Cool, UCI=UCI_Cool, P=P_Cool) %>% 
+     mutate(Season='Cool')
+Warm = tlnise.result2 %>% 
+     select(Outcome, Pollutant, Lag, IQR, Effect_Warm, LCI_Warm, UCI_Warm, P_Warm) %>%
+     rename(PE=Effect_Warm, LCI=LCI_Warm, UCI=UCI_Warm, P=P_Warm) %>% 
+     mutate(Season='Warm')
+
+tlnise.result3 = rbind(Cool, Warm) %>% 
+     mutate(Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
+                                                 Pollutant == 'soil'~"Soil",
+                                                  Pollutant == 'biomass' ~ "Biomass",
+                                                  Pollutant == 'secnit' ~ "Secondary Nitrate",
+                                                  Pollutant == 'secsulf' ~ "Secondary Sulfate",
+                                                  Pollutant == 'fsalt' ~ "Fresh Sea Salt",
+                                                  Pollutant == 'vehic' ~ "Vehicle Emission",
+                                                  Pollutant == 'totpm25' ~ 'PM2.5'),
+                                        LineCol = case_when(PE < 1 & P < 0.05 ~ 'blue',
+                                                            PE < 1 & P < 0.10 ~ 'green',
+                                                            PE > 1 & P < 0.05 ~ 'red',
+                                                            PE > 1 & P < 0.10 ~ 'orange',
+                                                            TRUE ~ 'black')) %>% 
+               arrange(Outcome, Pollutant, Lag, Season)
 
 
-#     rownames()
- `rownames<-`(seq_len(nrow(iris)))
-     reshape(dw, direction='long', 
-        varying=c('f1.avg', 'f1.sd', 'f2.avg', 'f2.sd'), 
-        timevar='var',
-        times=c('f1', 'f2'),
-        v.names=c('avg', 'sd'),
-        idvar='sbj')
+tlnise.result3 = filter(tlnise.result3, Pollutant!='fsalt'& Pollutant!='asalt')
+tlnise.result3$Name[tlnise.result3$Name=='PM2.5'] = '"PM[2.5]"'
+tlnise.result3$Name = factor(tlnise.result3$Name)
+tlnise.result3$Name = relevel(tlnise.result3$Name,'"PM[2.5]"')
+tlnise.result3$Pollutant = factor(tlnise.result3$Pollutant)
+tlnise.result3$Pollutant = relevel(tlnise.result3$Pollutant,'totpm25')
+tlnise.result3$Lag = as.factor(tlnise.result3$Lag)
 
-tlnise.result$Z=tlnise.result$PE/tlnise.result$SE
-tlnise.result$P= 1 - 2*abs(0.5-(1-pnorm(tlnise.result$Z))) 
+Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>% 
+     ggplot(aes(x=Lag,y=PE,color=Season)) +
+     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
+     	geom_point(aes(),cex=3.25, position = position_dodge(width = 0.50))+
+          scale_y_continuous(limits = c(0.95,1.05))+
+          facet_grid(.~Pollutant)+#, labeller = label_parsed)+
+     	geom_hline(yintercept=1,color='Black')+ 
+          ylab("OR per IQR increase")+
+          xlab("")+
+          ggtitle('Cardiovascular related Hospital Admission')+
+          theme_bw()+
+         # scale_color_identity()+
+          theme(plot.title = element_text(hjust = 0.5), 
+                axis.text.x = element_text(vjust =0.5, angle = 0), #panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank())
 
-tlnise.result2$Effect=exp(tlnise.result2$PE*tlnise.result2$IQR)
-tlnise.result2$LCI=exp((tlnise.result2$PE-1.96*tlnise.result2$SE)*tlnise.result2$IQR)
-tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2$IQR)
+Resp = filter(tlnise.result3, Outcome == 'Resp') %>% 
+     ggplot(aes(x=Lag,y=PE,color=Season)) +
+     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
+     	geom_point(aes(),cex=3.25, position = position_dodge(width = 0.50))+
+          scale_y_continuous(limits = c(0.9,1.1))+
+          facet_grid(.~Pollutant)+#, labeller = label_parsed)+
+     	geom_hline(yintercept=1,color='Black')+ 
+          ylab("OR per IQR increase")+
+          xlab("")+
+          ggtitle('Respiratory related Hospital Admission')+
+          theme_bw()+
+         # scale_color_identity()+
+          theme(plot.title = element_text(hjust = 0.5), 
+                axis.text.x = element_text(vjust =0.5, angle = 0), #panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank())
+
+grid.arrange(Cardio, Resp, ncol=1)
 ```
 

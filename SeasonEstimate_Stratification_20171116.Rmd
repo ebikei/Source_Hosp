@@ -127,7 +127,7 @@ ptm=proc.time()
 
 #First Warm Season
 for (jj in 1:length(SiteList)){
-     DF_temp=DF[DF_warm$Name==SiteList[jj],]
+     DF_temp=DF[DF$Name==SiteList[jj],]
      for (iii in 1:16){     
      tryCatch({ 
           tempname=alllist[iii,2]
@@ -138,7 +138,9 @@ for (jj in 1:length(SiteList)){
                     group_by(Name, Age) %>%
                     mutate(Expo = lag(target_val, n = kkk, default = NA)) %>% 
                     ungroup() %>% 
-                    data.frame()
+                    data.frame() %>% 
+                    arrange(Name, date, Age) %>% 
+                    filter(Warm == 1)
                out1=PoisModel(alllist[iii,1],'Expo',DF_temp2,alllist[iii,3])
                temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,'Warm',data.frame(t(out1$coefficients[2,])))
                colnames(temp)=c('Name','Outcome','Pollutant','Lag','Season','Estimate','SE','t.val','p.val')
@@ -151,7 +153,7 @@ for (jj in 1:length(SiteList)){
 }
 #Then Cool Season
 for (jj in 1:length(SiteList)){
-     DF_temp=DF[DF_cool$Name==SiteList[jj],]
+     DF_temp=DF[DF$Name==SiteList[jj],]
      for (iii in 1:16){     
      tryCatch({ 
           tempname=alllist[iii,2]
@@ -162,7 +164,9 @@ for (jj in 1:length(SiteList)){
                     group_by(Name, Age) %>%
                     mutate(Expo = lag(target_val, n = kkk, default = NA)) %>% 
                     ungroup() %>% 
-                    data.frame()
+                    data.frame() %>% 
+                    arrange(Name, date, Age) %>% 
+                    filter(Cool == 1)
                out1=PoisModel(alllist[iii,1],'Expo',DF_temp2,alllist[iii,3])
                temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,'Cool',data.frame(t(out1$coefficients[2,])))
                colnames(temp)=c('Name','Outcome','Pollutant','Lag','Season','Estimate','SE','t.val','p.val')
@@ -228,8 +232,6 @@ filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, L
 
 Let's make a plot for each pollutant
 
-levels(result$variable) <- c("PM[10]","SO[2]", "NO", "NO[2]")
-
 ```{r}
 tlnise.result3 = mutate(tlnise.result2, Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
                                                  Pollutant == 'soil'~"Soil",
@@ -261,7 +263,7 @@ Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>%
      ggplot(aes(x=Lag,y=Effect,color=Season)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
      	geom_point(aes(),cex=3.25, position = position_dodge(width = 0.50))+
-          scale_y_continuous(limits = c(0.97,1.08))+
+          scale_y_continuous(limits = c(0.95,1.08))+
           facet_grid(.~Pollutant)+#, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -278,7 +280,7 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
      ggplot(aes(x=Lag,y=Effect,color= Season)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
      	geom_point(aes(),cex=3.25, position = position_dodge(width = 0.50))+
-          scale_y_continuous(limits = c(0.97,1.08))+
+          scale_y_continuous(limits = c(0.95,1.08))+
           facet_grid(.~Pollutant)+#, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+

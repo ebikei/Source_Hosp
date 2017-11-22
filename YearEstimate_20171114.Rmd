@@ -9,28 +9,15 @@ First, Download dataset.
 ```{r include=FALSE}
 x<-c('tidyverse','reshape2','splines','ggthemes','tlnise','gridExtra','data.table','zoo','forcats')
 lapply(x, require, character.only=T)
-#setwd('K:\\Research\\PMSource_Hosp\\Code\\R\\NoteBook')
-#load('C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\DF_20170714.RData') #DF
-setwd('F:\\Research\\Source_Hosp\\Data')
-load('DF_20170714.RData') #DF
-#source("F:\\Research\\Source_Hosp\\Code\\Source_Hosp\\TLNise.R")
-source("F:\\Research\\Source_Hosp\\Code\\Source_Hosp\\TLNise.mv1.R")
-source("F:\\Research\\Source_Hosp\\Code\\Source_Hosp\\init.R")
-source("F:\\Research\\Source_Hosp\\Code\\Source_Hosp\\internal.R")
-source("F:\\Research\\Sourinstall.packages("thepackage"ce_Hosp\\Code\\Source_Hosp\\zzz.R")
-
-.libPaths("C:\\Users\\Keita\\Downloads")
-install.packages("tlnise")
+setwd('K:\\Research\\PMSource_Hosp\\Code\\R\\NoteBook')
+load('C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\DF_20170714.RData') #DF
 ```
 
 Some Data cleaning
 
 ```{r include=FALSE}
-#load('C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\OriginalData.RData')
-#load("M:\\Atesgis\\Source_Hosp\\Data\\Demographic.RData") #Zone_demo
-setwd('F:\\Research\\Source_Hosp\\Data')
-load('OriginalData.RData')
-load('Demographic.RData') #Zone_demo
+load('C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\OriginalData.RData')
+load("M:\\Atesgis\\Source_Hosp\\Data\\Demographic.RData") #Zone_demo
 Zone_demo$Name_Zone=as.character(Zone_demo$Name_Zone)
 Original_df2=inner_join(Original_df,Zone_demo,by='Name_Zone') %>% 
      mutate(cardio_disease_age65to99=cardio_disease_age65to74+cardio_disease_age75up,
@@ -176,7 +163,7 @@ tlnise.result=data.frame()
 for (mm in 1:dim(alllist2)[1]){
      temp2nd=filter(Result.1st,Outcome==alllist2[mm,1],Pollutant==alllist2[mm,2],Lag==alllist2[mm,3])
      set.seed(21)
-     prior=0 
+     prior=0
      seed <- round(10000*runif(1))
      tlnise.out=tlnise(temp2nd$Estimate,temp2nd$SE^2,prior=prior,maxiter=5000,seed=seed)
      tlnise.out2=data.frame(cbind(as.character(alllist2[mm,1]),as.character(alllist2[mm,2]),as.character(alllist2[mm,3]), dim(temp2nd)[1],as.numeric(as.character(tlnise.out$gamma[1])),as.numeric(as.character(tlnise.out$gamma[2]))))
@@ -304,4 +291,3 @@ filter(Result.1st, Outcome == 'Cardio', Pollutant == 'vehic') %>%
 
 
 ```
-

@@ -242,7 +242,7 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
      ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
      	geom_point(aes(),cex=3.25)+
-          scale_y_continuous(limits = c(0.75,1.25))+
+          scale_y_continuous(limits = c(0.925,1.10))+
           facet_grid(.~Pollutant, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
