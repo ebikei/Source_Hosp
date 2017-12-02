@@ -81,9 +81,9 @@ DF = mutate(DF, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0), Cool = ifelse( 
 
 Define function and d.f.
 ```{r}
-df.temp=3
-df.rh=3
-df.day=4*8 #4/year*8 years
+df.temp=3 #3
+df.rh=3 #3
+df.day=0.75*8 #4/year*8 years
 
 OutcomeList=names(DF)[4:5] #Outcome of Interest
 ExpList=names(DF)[c(7:8, 10:13, 16, 17, 22:61)]
@@ -91,160 +91,134 @@ ExpList=names(DF)[c(7:8, 10:13, 16, 17, 22:61)]
 alllist=expand.grid(OutcomeList,ExpList) #Create all possible combinations 
 names(alllist)=c('Outcome','Exposure') #Label columns
 alllist$denomi = c('Pop')
-#alllist$denomi=rep(c('Total','White','Black','Asian','Hispanic','Age00_18','Age19_64','Age65_74','Age75_99','Age65_99','Male','Female'),dim(alllist)[1]/length(OutcomeList))
 alllist$Outcome=as.character(alllist$Outcome)
 alllist$Exposure=as.character(alllist$Exposure)
 
-PoisModel<-function(disease,exposure,datasetname,denominator){
-#     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')
-#     covariates=c('DayIndex','Age','ns(meanapptemp,df.temp)','ns(day,df.day)')
-#     covariates=c('DayIndex','Age', 'ns(meanapptemp,df.temp)','ns(coolday,16)','ns(warmday,16)')              
-     covariates=c('DayIndex', 'Age','ns(meanapptemp,df.temp)','Warm','YEAR')      
-     model=as.formula(paste(disease,"~",exposure,"+",paste(covariates,collapse="+"),
+PoisModel_int<-function(disease,datasetname,denominator){
+     covariates=c('ExpoCool','ExpoWarm','DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
+#     covariates=c('ExpoCool','ExpoWarm','DayIndex', 'ns(meanapptemp,df.temp)','ns(coolday,16)','ns(warmday,16)')     
+#     covariates=c('ExpoCool','ExpoWarm','DayIndex', 'ns(meanapptemp,df.temp)','Warm','YEAR') 
+     model=as.formula(paste(disease,"~",paste(covariates,collapse="+"),
                             paste('+offset(log(',denominator,'))',sep='')))
      fit=glm(model,
      	data=datasetname,
      	family=quasipoisson,
-     	na.action = na.exclude,
      	control=glm.control(maxit = 1000,epsilon = 1e-8))
      summary(fit)
 }
-
 ```
-
-Now Let's analyze data using new data frame
 
 ```{r}
-#load('C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\DF_20171114.RData')#DF
-warm = c('05','06','07','08','09','10')
-DF = mutate(DF, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0), Cool = ifelse( Warm == 1, 0, 1 )) 
-#Summary Stat
-DF %>% 
-     group_by(Warm) %>% 
-     summarise(PM25=mean(totpm25,na.rm=TRUE),secsulf=mean(secsulf,na.rm=TRUE),secnit= mean(secnit,na.rm=TRUE),vehic=mean(vehic,na.rm=TRUE),biomass=mean(biomass,na.rm=TRUE),soil=mean(soil,na.rm=TRUE))
-
-DF %>% 
-     group_by(Warm) %>% 
-     summarise(PM25=IQR(totpm25,na.rm=TRUE),secsulf=IQR(secsulf,na.rm=TRUE),secnit= IQR(secnit,na.rm=TRUE),vehic=IQR(vehic,na.rm=TRUE),biomass=IQR(biomass,na.rm=TRUE),soil=IQR(soil,na.rm=TRUE))
-
-DF_warm = filter(DF, Warm ==1)
-DF_cool = filter(DF, Cool ==1)
-
 Result.1st=data.frame()
 SiteList=unique(DF$Name)
-ptm=proc.time()
 
-#First Warm Season
 for (jj in 1:length(SiteList)){
-     DF_temp=DF[DF$Name==SiteList[jj],]
-     for (iii in 1:16){     
-     tryCatch({ 
+     DF_temp=DF[DF$Name==SiteList[jj],] %>% 
+          filter(Age == 'Age00to18')
+     #for (i in 1:dim(alllist)[1]){
+     for (iii in 1:144){     
+     tryCatch({
           tempname=alllist[iii,2]
           for (kkk in 0:2){
                DF_temp1 = DF_temp
                DF_temp1$target_val = DF_temp1[,c(tempname)]
                DF_temp2 = arrange(DF_temp1, Name, Age, date) %>% 
                     group_by(Name, Age) %>%
-                    mutate(Expo = lag(target_val, n = kkk, default = NA)) %>% 
+                    mutate(Expo = lag(target_val, n = kkk, default = NA), ExpoCool=Expo*Cool, ExpoWarm=Expo*Warm,  coolday = day*Cool, warmday = day*Warm) %>% 
                     ungroup() %>% 
-                    data.frame() %>% 
-                    arrange(Name, date, Age) %>% 
-                    filter(Warm == 1)
-               out1=PoisModel(alllist[iii,1],'Expo',DF_temp2,alllist[iii,3])
-               temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,'Warm',data.frame(t(out1$coefficients[2,])))
-               colnames(temp)=c('Name','Outcome','Pollutant','Lag','Season','Estimate','SE','t.val','p.val')
-               Result.1st=rbind(Result.1st,temp)    #Pile results 
+                    data.frame()
+               out1 = PoisModel_int(alllist[iii,1],DF_temp2,alllist[iii,3])
+               temp_matrix = out1$cov.unscaled[2:3,2:3] * out1$dispersion 
+               temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,data.frame(t(out1$coefficients[2,])),data.frame(t(out1$coefficients[3,])),t(c(temp_matrix)))
+               colnames(temp)=c('Name','Outcome','Pollutant','Lag','Estimate.Cool','SE.Cool','t.val.Cool','p.val.Cool','Estimate.Warm','SE.Warm','t.val.Warm','p.val.Warm','matrix11','matrix21','matrix12','matrix22')
+               Result.1st=rbind(Result.1st,temp)
                rm(DF_temp1,DF_temp2,temp,out1)
-               }
+          }
      }, error=function(e){}) 
      }
      rm(DF_temp)
-}
-#Then Cool Season
-for (jj in 1:length(SiteList)){
-     DF_temp=DF[DF$Name==SiteList[jj],]
-     for (iii in 1:16){     
-     tryCatch({ 
-          tempname=alllist[iii,2]
-          for (kkk in 0:2){
-               DF_temp1 = DF_temp
-               DF_temp1$target_val = DF_temp1[,c(tempname)]
-               DF_temp2 = arrange(DF_temp1, Name, Age, date) %>% 
-                    group_by(Name, Age) %>%
-                    mutate(Expo = lag(target_val, n = kkk, default = NA)) %>% 
-                    ungroup() %>% 
-                    data.frame() %>% 
-                    arrange(Name, date, Age) %>% 
-                    filter(Cool == 1)
-               out1=PoisModel(alllist[iii,1],'Expo',DF_temp2,alllist[iii,3])
-               temp=cbind(as.character(SiteList[jj]),as.character(alllist[iii,1]),as.character(alllist[iii,2]),kkk,'Cool',data.frame(t(out1$coefficients[2,])))
-               colnames(temp)=c('Name','Outcome','Pollutant','Lag','Season','Estimate','SE','t.val','p.val')
-               Result.1st=rbind(Result.1st,temp)    #Pile results 
-               rm(DF_temp1,DF_temp2,temp,out1)
-               }
-     }, error=function(e){}) 
-     }
-     rm(DF_temp)
-}
-#proc.time()-ptm
+} 
 
-filter(Result.1st, p.val<0.05, Estimate>0) %>% arrange(Estimate)
-filter(Result.1st, p.val<0.05, Estimate<0) %>% arrange(Estimate)               
+SeasonResult.1st=Result.1st
+SeasonResult.1st$Name = as.character(SeasonResult.1st$Name)
+SeasonResult.1st$Outcome = as.character(SeasonResult.1st$Outcome)
+SeasonResult.1st$Pollutant = as.character(SeasonResult.1st$Pollutant)
 ```
-```{r include=FALSE}
-#load('K:\\Research\\PMSource_Hosp\\Data\\Result1st_stage.RData') #Result.1st,
-SourceList = c('totpm25','secsulf','secnit','vehic','biomass','soil','fsalt','asalt')
-Result.1st = filter (Result.1st, Pollutant %in% SourceList)
 
+2nd stage analysis
+```{r include=FALSE}
+SourceList = c('totpm25','secsulf','secnit','vehic','biomass','soil')
+SeasonResult.1st = filter (SeasonResult.1st, Pollutant %in% SourceList)
+
+# Obtain IQR
 Air=select(DF,c(7:8, 10:13, 16, 17, 22:61)) %>%
-     summarize_all(funs(IQR),na.rm=TRUE) %>% 
+     summarize_all(funs(IQR), na.rm=TRUE) %>% 
      t() %>%
      data.frame() %>% 
-     rename(IQR=".")
+     rename(IQR = ".")
 Air$Pollutant=rownames(Air)
 rownames(Air)=c(1:dim(Air)[1])
+alllist2=distinct(SeasonResult.1st,Outcome,Pollutant,Lag,keep_all=TRUE)
 
-alllist2=distinct(Result.1st,Outcome,Pollutant,Lag, Season,keep_all=TRUE)
 
-tlnise.result=data.frame()
+tlnise.result = data.frame()
 for (mm in 1:dim(alllist2)[1]){
-     temp2nd=filter(Result.1st,Outcome==alllist2[mm,1],Pollutant==alllist2[mm,2],Lag==alllist2[mm,3], Season == alllist2[mm,4])
+     temp2nd=filter(SeasonResult.1st, Outcome == alllist2[mm,1], Pollutant == alllist2[mm,2], Lag == alllist2[mm,3])
      set.seed(21)
-     prior=0
+     prior = 0
      seed <- round(10000*runif(1))
-     tlnise.out=tlnise(temp2nd$Estimate,temp2nd$SE^2,prior=prior,maxiter=5000,seed=seed)
-     tlnise.out2=data.frame(cbind(as.character(alllist2[mm,1]),as.character(alllist2[mm,2]),as.character(alllist2[mm,3]), as.character(alllist2[mm,4]),dim(temp2nd)[1],as.numeric(as.character(tlnise.out$gamma[1])),as.numeric(as.character(tlnise.out$gamma[2]))))
-     tlnise.result=rbind(tlnise.result,tlnise.out2)
+     covarint <- array(NA,c(2,2,dim(temp2nd)[1]))
+     beta=data.frame(temp2nd$Estimate.Cool,temp2nd$Estimate.Warm)
+     beta.var=data.frame(temp2nd$SE.Cool^2,temp2nd$SE.Warm^2)
+     for (nnn in 1:dim(temp2nd)[1]){
+          covarint[,,nnn]=as.numeric(temp2nd[nnn,13:16])
+     }
+
+     tlnise.out = tlnise(beta,covarint, prior=prior, maxiter=5000, seed=seed)
+     #tlnise.out = tlnise(temp2nd$Estimate, temp2nd$SE^2, prior=prior, maxiter=5000, seed=seed)
+     tlnise.out2 = data.frame(cbind(as.character(alllist2[mm,1]), as.character(alllist2[mm,2]), as.character(alllist2[mm,3]), as.numeric(as.character(tlnise.out$gamma[1,1])), as.numeric(as.character(tlnise.out$gamma[1,2])), as.numeric(as.character(tlnise.out$gamma[2,1])), as.numeric(as.character(tlnise.out$gamma[2,2]))))
+     tlnise.result = rbind(tlnise.result, tlnise.out2)
      rm(temp2nd,tlnise.out,tlnise.out2)
 }
 ```
-Merge with annual IQR value
+
 ```{r}
-colnames(tlnise.result)=c('Outcome','Pollutant','Lag', 'Season','N','PE','SE')
-tlnise.result$Season=as.character(tlnise.result$Season)
-tlnise.result$Pollutant=as.character(tlnise.result$Pollutant)
-tlnise.result$Outcome=as.character(tlnise.result$Outcome)
-tlnise.result$Lag=as.numeric(as.character(tlnise.result$Lag))
-tlnise.result$N=as.numeric(as.character(tlnise.result$N))
-tlnise.result$PE=as.numeric(as.character(tlnise.result$PE))
-tlnise.result$SE=as.numeric(as.character(tlnise.result$SE))
-tlnise.result$Z=tlnise.result$PE/tlnise.result$SE
-tlnise.result$P= 1 - 2*abs(0.5-(1-pnorm(tlnise.result$Z))) 
+colnames(tlnise.result) = c('Outcome', 'Pollutant', 'Lag', 'PE_Cool', 'SE_Cool', 'PE_Warm' ,'SE_Warm')
+tlnise.result$Pollutant = as.character(tlnise.result$Pollutant)
+tlnise.result$Outcome = as.character(tlnise.result$Outcome)
+tlnise.result$Lag = as.numeric(as.character(tlnise.result$Lag))
+tlnise.result$PE_Cool = as.numeric(as.character(tlnise.result$PE_Cool))
+tlnise.result$SE_Cool = as.numeric(as.character(tlnise.result$SE_Cool))
+tlnise.result$PE_Warm = as.numeric(as.character(tlnise.result$PE_Warm))
+tlnise.result$SE_Warm = as.numeric(as.character(tlnise.result$SE_Warm))
 
-tlnise.result2=inner_join(tlnise.result,Air,by='Pollutant')
-tlnise.result2$Effect=exp(tlnise.result2$PE*tlnise.result2$IQR)
-tlnise.result2$LCI=exp((tlnise.result2$PE-1.96*tlnise.result2$SE)*tlnise.result2$IQR)
-tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2$IQR)
+Cool = tlnise.result %>% 
+     select(Outcome, Pollutant, Lag, PE_Cool, SE_Cool) %>% 
+     mutate(Season = 'Cool') %>% 
+     rename(PE = PE_Cool, SE = SE_Cool)
+Warm = tlnise.result %>% 
+     select(Outcome, Pollutant, Lag, PE_Warm, SE_Warm) %>% 
+     mutate(Season = 'Warm') %>% 
+     rename(PE = PE_Warm, SE = SE_Warm)
 
-filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season, N, IQR, Effect, LCI, UCI)
-filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season, N, IQR, Effect, LCI, UCI)
+tlnise.result2 = rbind(Cool,Warm) %>% 
+     inner_join(Air, by ='Pollutant') %>% 
+     mutate(Effect = exp(PE*IQR), LCI = exp((PE-1.96*SE)*IQR), UCI = exp((PE+1.96*SE)*IQR), Z = PE/SE, P = 1 - 2*abs(0.5-(1-pnorm(Z))))
 
+
+filter(tlnise.result2,UCI<1) %>% 
+     arrange(Effect) %>% 
+     select(Outcome, Pollutant, Lag, Season, Effect, LCI, UCI, P)
+
+filter(tlnise.result2,LCI>1) %>% 
+     arrange(Effect) %>% 
+     select(Outcome, Pollutant, Lag, Season, Effect, LCI, UCI, P) %>% 
+     arrange(Season, Outcome, Pollutant, Lag)
 ```
 
-Let's make a plot for each pollutant
-
 ```{r}
-tlnise.result3 = mutate(tlnise.result2, Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
+tlnise.result3 = tlnise.result2 %>% 
+     mutate(Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
                                                  Pollutant == 'soil'~"Soil",
                                                   Pollutant == 'biomass' ~ "Biomass",
                                                   Pollutant == 'secnit' ~ "Secondary Nitrate",
@@ -252,10 +226,10 @@ tlnise.result3 = mutate(tlnise.result2, Name=case_when(Pollutant == 'asalt'~ "Ag
                                                   Pollutant == 'fsalt' ~ "Fresh Sea Salt",
                                                   Pollutant == 'vehic' ~ "Vehicle Emission",
                                                   Pollutant == 'totpm25' ~ 'PM2.5'),
-                                        LineCol = case_when(PE < 0 & P < 0.05 ~ 'blue',
-                                                            PE < 0 & P < 0.10 ~ 'green',
-                                                            PE > 0 & P < 0.05 ~ 'red',
-                                                            PE > 0 & P < 0.10 ~ 'orange',
+                                        LineCol = case_when(Effect < 1 & P < 0.05 ~ 'blue',
+                                                            Effect < 1 & P < 0.10 ~ 'green',
+                                                            Effect > 1 & P < 0.05 ~ 'red',
+                                                            Effect > 1 & P < 0.10 ~ 'orange',
                                                             TRUE ~ 'black')) %>% 
                arrange(Outcome, Pollutant, Lag, Season)
 
@@ -266,15 +240,12 @@ tlnise.result3$Name = relevel(tlnise.result3$Name,'"PM[2.5]"')
 tlnise.result3$Pollutant = factor(tlnise.result3$Pollutant)
 tlnise.result3$Pollutant = relevel(tlnise.result3$Pollutant,'totpm25')
 tlnise.result3$Lag = as.factor(tlnise.result3$Lag)
-     
-OutcomeList = select(tlnise.result3, Outcome) %>%
-          distinct(Outcome, Pollutant)
 
 Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>% 
      ggplot(aes(x=Lag,y=Effect, shape = Season, color= LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
      	geom_point(aes(shape = Season),cex=3.25, position = position_dodge(width = 0.50))+
-         # scale_y_continuous(limits = c(0.95,1.08))+
+          #scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant)+#, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -286,12 +257,11 @@ Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>%
                 axis.text.x = element_text(vjust =0.5, angle = 0), #panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
-
 Resp = filter(tlnise.result3, Outcome == 'Resp') %>% 
      ggplot(aes(x=Lag,y=Effect, shape = Season, color= LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
      	geom_point(aes(shape = Season),cex=3.25, position = position_dodge(width = 0.50))+
-         # scale_y_continuous(limits = c(0.95,1.08))+
+         # scale_y_continuous(limits = c(0.9,1.1))+
           facet_grid(.~Pollutant)+#, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -303,16 +273,10 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
                 axis.text.x = element_text(vjust =0.5, angle = 0), #panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
-
 grid.arrange(Cardio, Resp, ncol=1)
-
 ```
-Use Season Specific IQR
+Using season Specific IQR
 ```{r}
-DF %>% 
-     group_by(Warm) %>% 
-     summarise(PM25=IQR(totpm25,na.rm=TRUE),secsulf=IQR(secsulf,na.rm=TRUE),secnit= IQR(secnit,na.rm=TRUE),vehic=IQR(vehic,na.rm=TRUE),biomass=IQR(biomass,na.rm=TRUE),soil=IQR(soil,na.rm=TRUE))
-
 Air2 = DF %>%
      select(c(7:8, 10:13, 16, 17, 22:61,73)) %>%
      group_by(Warm) %>% 
@@ -330,19 +294,22 @@ Air3 = Air2 %>%
      select(-variable) %>% 
      rename(IQR = value)
 
-tlnise.result4=inner_join(tlnise.result,Air3,by=c('Pollutant','Season'))
-tlnise.result4$Effect=exp(tlnise.result4$PE*tlnise.result4$IQR)
-tlnise.result4$LCI=exp((tlnise.result4$PE-1.96*tlnise.result4$SE)*tlnise.result4$IQR)
-tlnise.result4$UCI=exp((tlnise.result4$PE+1.96*tlnise.result4$SE)*tlnise.result4$IQR)
+tlnise.result4= tlnise.result2 %>% 
+     select(-IQR, -Effect, -LCI, -UCI, -Z, -P) %>% 
+     inner_join(Air3,by=c('Pollutant','Season')) %>% 
+     mutate(Effect = exp(PE*IQR), LCI = exp((PE-1.96*SE)*IQR), UCI = exp((PE+1.96*SE)*IQR), Z = PE/SE, P = 1 - 2*abs(0.5-(1-pnorm(Z))))
 
-filter(tlnise.result4,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season, N, IQR, Effect, LCI, UCI)
-filter(tlnise.result4,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season, N, IQR, Effect, LCI, UCI)
+#tlnise.result4$Effect=exp(tlnise.result4$PE*tlnise.result4$IQR)
+#tlnise.result4$LCI=exp((tlnise.result4$PE-1.96*tlnise.result4$SE)*tlnise.result4$IQR)
+#tlnise.result4$UCI=exp((tlnise.result4$PE+1.96*tlnise.result4$SE)*tlnise.result4$IQR)
 
+filter(tlnise.result4,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season,  IQR, Effect, LCI, UCI, P)
+filter(tlnise.result4,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season,  IQR, Effect, LCI, UCI, P)
 
 ```
-
 ```{r}
-tlnise.result5 = mutate(tlnise.result4, Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
+tlnise.result5 = tlnise.result4 %>% 
+     mutate(Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
                                                  Pollutant == 'soil'~"Soil",
                                                   Pollutant == 'biomass' ~ "Biomass",
                                                   Pollutant == 'secnit' ~ "Secondary Nitrate",
@@ -350,10 +317,10 @@ tlnise.result5 = mutate(tlnise.result4, Name=case_when(Pollutant == 'asalt'~ "Ag
                                                   Pollutant == 'fsalt' ~ "Fresh Sea Salt",
                                                   Pollutant == 'vehic' ~ "Vehicle Emission",
                                                   Pollutant == 'totpm25' ~ 'PM2.5'),
-                                        LineCol = case_when(PE < 0 & P < 0.05 ~ 'blue',
-                                                            PE < 0 & P < 0.10 ~ 'green',
-                                                            PE > 0 & P < 0.05 ~ 'red',
-                                                            PE > 0 & P < 0.10 ~ 'orange',
+                                        LineCol = case_when(Effect < 1 & P < 0.05 ~ 'blue',
+                                                            Effect < 1 & P < 0.10 ~ 'green',
+                                                            Effect > 1 & P < 0.05 ~ 'red',
+                                                            Effect > 1 & P < 0.10 ~ 'orange',
                                                             TRUE ~ 'black')) %>% 
                arrange(Outcome, Pollutant, Lag, Season)
 
@@ -364,15 +331,12 @@ tlnise.result5$Name = relevel(tlnise.result5$Name,'"PM[2.5]"')
 tlnise.result5$Pollutant = factor(tlnise.result5$Pollutant)
 tlnise.result5$Pollutant = relevel(tlnise.result5$Pollutant,'totpm25')
 tlnise.result5$Lag = as.factor(tlnise.result5$Lag)
-     
-OutcomeList = select(tlnise.result5, Outcome) %>%
-          distinct(Outcome, Pollutant)
 
 Cardio = filter(tlnise.result5, Outcome == 'Cardio') %>% 
      ggplot(aes(x=Lag,y=Effect, shape = Season, color= LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
      	geom_point(aes(shape = Season),cex=3.25, position = position_dodge(width = 0.50))+
-         # scale_y_continuous(limits = c(0.95,1.08))+
+        #  scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant)+#, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -384,12 +348,11 @@ Cardio = filter(tlnise.result5, Outcome == 'Cardio') %>%
                 axis.text.x = element_text(vjust =0.5, angle = 0), #panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
-
 Resp = filter(tlnise.result5, Outcome == 'Resp') %>% 
-     ggplot(aes(x=Lag,y=Effect, shape = Season, color= LineCol)) +
+     ggplot(aes(x=Lag,y=Effect,shape = Season, color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35, position = position_dodge(width = 0.50))+
      	geom_point(aes(shape = Season),cex=3.25, position = position_dodge(width = 0.50))+
-         # scale_y_continuous(limits = c(0.95,1.10))+
+       #   scale_y_continuous(limits = c(0.9,1.15))+
           facet_grid(.~Pollutant)+#, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -401,8 +364,6 @@ Resp = filter(tlnise.result5, Outcome == 'Resp') %>%
                 axis.text.x = element_text(vjust =0.5, angle = 0), #panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
-
 grid.arrange(Cardio, Resp, ncol=1)
-
 ```
 

@@ -74,6 +74,9 @@ DF.B$DayIndex=relevel(DF.B$DayIndex,ref='Weekday')
 
 #Merge Health data and Exposure data
 DF=inner_join(DF.A3,DF.B,by=c('Name','date'))
+warm = c('05','06','07','08','09','10')
+DF = mutate(DF, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0), Cool = ifelse( Warm == 1, 0, 1 ), YEAR = as.factor(substr(date, 1, 4))) 
+
 #save(DF,file='C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\DF_20171114.RData')
 ```
 
@@ -81,7 +84,7 @@ Define function and d.f.
 ```{r}
 df.temp=3
 df.rh=3
-df.day=4*8 #4/year*8 years
+df.day=0.75*8 #4/year*8 years
 
 OutcomeList=names(DF)[4:5] #Outcome of Interest
 ExpList=names(DF)[c(7:8, 10:13, 16, 17, 22:61)]
@@ -94,7 +97,8 @@ alllist$Outcome=as.character(alllist$Outcome)
 alllist$Exposure=as.character(alllist$Exposure)
 
 PoisModel<-function(disease,exposure,datasetname,denominator){
-     covariates=c('DayIndex','Age','ns(meanapptemp,df.temp)','ns(day,df.day)')
+     covariates=c('DayIndex','Age','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
+#     covariates=c('DayIndex','Age','ns(meanapptemp,df.temp)', 'Warm','YEAR')
 #     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')
      model=as.formula(paste(disease,"~",exposure,"+",paste(covariates,collapse="+"),
                             paste('+offset(log(',denominator,'))',sep='')))
@@ -226,7 +230,7 @@ Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>%
      ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
      	geom_point(aes(),cex=3.25)+
-          scale_y_continuous(limits = c(0.95,1.05))+
+        #  scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -244,7 +248,7 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
      ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
      	geom_point(aes(),cex=3.25)+
-          scale_y_continuous(limits = c(0.95,1.05))+
+        #  scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant, labeller = label_parsed)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
@@ -263,7 +267,7 @@ grid.arrange(Cardio, Resp, ncol=1)
 Plot Community Specific Estimates in which TLNise showed 
 ```{r}
 Result.1st$Pollutant = as.character(Result.1st$Pollutant)
-filter(Result.1st, Outcome == 'Cardio', Pollutant == 'vehic') %>% 
+filter(Result.1st, Outcome == 'Resp', Pollutant == 'secsulf') %>% 
      left_join(Air,by='Pollutant') %>% 
      mutate(Effect = exp(Estimate*IQR), 
             LCI = exp((Estimate-1.96*SE)*IQR), 
@@ -277,7 +281,7 @@ filter(Result.1st, Outcome == 'Cardio', Pollutant == 'vehic') %>%
      ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
      	geom_point(aes(),cex=3.25)+
-          scale_y_continuous(limits = c(0.95,1.1))+
+          #scale_y_continuous(limits = c(0.95,1.1))+
           facet_grid(.~Name)+
      	geom_hline(yintercept=1,color='Black')+
           ylab("OR per IQR increase")+
