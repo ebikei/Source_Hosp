@@ -20,8 +20,10 @@ Original_df2 = Original_df %>%
          Age = str_extract(variable, pattern = "(0to18)|(19to49)|(50to64)|(65to74)|(75up)"),
          disease = str_extract(variable, pattern = "(cardio)|(resp)")) %>% 
      mutate(disease = replace(disease, disease == 'cardio', 'Cardio'), disease = replace(disease, disease == 'resp', 'Resp'), Age = replace(Age, Age == '0to18', '00to18'), Age = replace(Age, Age == '75up', '75to99')) %>% 
-     select(Name, Zone, date, disease, Age, Race, measurement) %>% 
-     arrange(Name, Zone, date, disease, Age, Race)
+     mutate(Age3 = case_when(Age == '00to18' ~ '00to18', Age == '19to49' ~ '19to64', Age == '50to64' ~ '19to64', Age =='65to74' ~ '65to99', Age == '75to99' ~ '65to99')) %>% 
+     select(Name, Zone, date, disease, Age3, Race, measurement) %>% 
+     arrange(Name, Zone, date, disease, Age3, Race) %>% 
+     rename(Age = Age3)
 Original_df2$Name = as.character(Original_df2$Name)
 ```
 
@@ -164,6 +166,7 @@ for (iii in 1:dim(alllist)[1]){
           mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
           ungroup() %>% 
           filter(!is.na(exposure)& !is.na(meantemp)) %>% 
+          arrange(date) %>% 
          # filter(!is.na(meantemp)) %>% 
           group_by(Name) %>% 
           do(data=PoisModel(data=.) %>% tidy()) %>%

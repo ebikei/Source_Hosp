@@ -77,49 +77,13 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-     group_by(Name,date, disease, Age, Race) %>%  #Add/Remove varible here in which level I want to analyze
+     filter(Race == 'white') %>% 
+     group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
      left_join(AirWeather2, by = c('Name', 'date')) 
 ```
-Make summary statistics
 
-```{r}
-DF %>% 
-     group_by(Name) %>% 
-     summarize(PM25 = mean(totpm25, na.rm = TRUE), BioMass = mean(biomass, na.rm = TRUE), 
-               SecNit = mean(secnit, na.rm = TRUE), SecSulf = mean(secsulf, na.rm = TRUE), 
-               Soil = mean(soil, na.rm = TRUE), Vehic = mean(vehic, na.rm = TRUE))
-
-DF %>% 
-     group_by(Warm) %>% 
-     summarize(PM25 = mean(totpm25, na.rm = TRUE), BioMass = mean(biomass, na.rm = TRUE), 
-               SecNit = mean(secnit, na.rm = TRUE), SecSulf = mean(secsulf, na.rm = TRUE), 
-               Soil = mean(soil, na.rm = TRUE), Vehic = mean(vehic, na.rm = TRUE))
-
-DF %>% 
-     group_by(Name,Warm) %>% 
-     summarize(PM25 = mean(totpm25, na.rm = TRUE), BioMass = mean(biomass, na.rm = TRUE), 
-               SecNit = mean(secnit, na.rm = TRUE), SecSulf = mean(secsulf, na.rm = TRUE), 
-               Soil = mean(soil, na.rm = TRUE), Vehic = mean(vehic, na.rm = TRUE))
-
-DF %>% 
-     group_by(Name) %>% 
-     summarize(cor(totpm25, biomass, use = 'pairwise.complete.obs'))
-
-# Correlation between Sec.Nitrate and PM2.5
-DF %>% 
-       group_by(Name) %>%
-       do(data.frame(Cor=t(cor(.[,c(7,8,10:13)], .[,8], use = 'pairwise.complete.obs'))))
-
-# Correlation between Sec.Sulfate and PM2.5
-DF %>% 
-       group_by(Name) %>%
-       do(data.frame(Cor=t(cor(.[,c(7,8,10:13)], .[,10], use = 'pairwise.complete.obs'))))
-
-
-#save(DF,file='C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\DF_20171114.RData')
-```
 Now Let's analyze data using new data frame
 
 ```{r}
@@ -141,8 +105,8 @@ Result.1st=list()
 ptm=proc.time()
 
 PoisModel<-function(datasetname){
-#     covariates=c('DayIndex','Age','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
-     covariates=c('DayIndex','Age','Race','ns(meanapptemp,df.temp)','ns(day,df.day)')     
+#     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
+     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')     
      model=as.formula(paste("Case~exposure+",paste(covariates,collapse="+")))
      fit=glm(model,
              data=datasetname,
@@ -161,11 +125,12 @@ for (iii in 1:dim(alllist)[1]){
      out = DF %>% 
           arrange(Name, date) %>%
           filter(disease == alllist[iii,1]) %>% 
-          group_by(Name, Age, Race) %>% 
+          group_by(Name,Race) %>% 
           arrange(date) %>% 
           mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
           ungroup() %>% 
           filter(!is.na(exposure)& !is.na(meantemp)) %>% 
+          arrange(date) %>% 
          # filter(!is.na(meantemp)) %>% 
           group_by(Name) %>% 
           do(data=PoisModel(data=.) %>% tidy()) %>%
