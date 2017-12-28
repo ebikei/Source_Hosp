@@ -28,7 +28,7 @@ Original_df2$Name = as.character(Original_df2$Name)
 Original_df2$Race = as.factor(Original_df2$Race )
 Original_df2$Race = relevel(Original_df2$Race ,ref='white')
 Original_df2$Age = as.factor(Original_df2$Age )
-Original_df2$Age = relevel(Original_df2$Age ,ref='19to64')
+Original_df2$Age = relevel(Original_df2$Age ,ref='00to18')
 
 ```
 
@@ -82,7 +82,7 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-    # filter(Age == '65to99') %>% 
+     filter(Age == '00to18') %>% 
      group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
@@ -105,11 +105,11 @@ alllist$denomi = c('Pop')
 
 df.temp=3
 df.rh=3
-df.day=4*8 #4/year*8 years
+df.day=6*8 #4/year*8 years
 
 PoisModel<-function(datasetname){
-     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
-#     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)')    
+#     covariates=c('DayIndex','Age','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
+     covariates=c('exposure','exposure*Race','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)')     
      model=as.formula(paste("Case~",paste(covariates,collapse="+")))
      fit=glm(model,
              data=datasetname,
@@ -132,12 +132,12 @@ for (iii in 1:dim(alllist)[1]){
           filter(Name == alllist[iii, 4], disease == alllist[iii,1]) %>% 
           arrange(date) %>%
           group_by(Race) %>% 
-          mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA), exposure_warm = exposure*Warm, exposure_cool = exposure*Cool) %>% 
+          mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
           ungroup() %>% 
-          filter(!is.na(exposure_warm) & !is.na(meantemp)) 
+          filter(!is.na(exposure)& !is.na(meantemp)) 
      out1 = PoisModel(DF_temp)
-     temp_matrix = out1$cov.unscaled[c(2:3),c(2:3)] * out1$dispersion 
-     out = cbind(out1$coefficients[c(2:3),], data.frame(temp_matrix))
+     temp_matrix = out1$cov.unscaled[c(2,59:61),c(2,59:61)] * out1$dispersion 
+     out = cbind(out1$coefficients[c(2,59:61),], data.frame(temp_matrix))
      out = out %>% 
           mutate(variable = rownames(.), Outcome = alllist[iii,1], Pollutant = alllist[iii,2], Lag = alllist[iii,3], Place = alllist[iii,4])
      Result.1st[[iii]] <- out    
@@ -154,29 +154,13 @@ filter(Result.1stall,  p.value<0.05, estimate<0) %>% arrange(estimate)
 ```
 Second Stage Analysis
 ```{r include=FALSE}
-ExpList2 = c(ExpList,'Cool')
-Air= DF %>% 
-     select_( .dots = ExpList2) %>% 
-     group_by(Cool) %>% 
+Air= select_(DF, .dots = ExpList) %>% 
      summarize_all(funs(IQR),na.rm=TRUE) %>% 
      t() %>%
      data.frame() %>% 
-     rename(Summer = 'X1', Winter = 'X2') %>% 
-     mutate(Pollutant = rownames(.)) %>% 
-     melt(id.vars=c('Pollutant')) %>% 
-     mutate(Variable = case_when(variable == 'Summer'~ "exposure_warm", variable == 'Winter' ~ 'exposure_cool')) %>%
-     filter(Pollutant != 'Cool') %>% 
-     rename (IQR = value) %>% 
-     select(Variable, Pollutant, IQR)
-
-# If want to use annual IQR, use this code
-#Air= select_(DF, .dots = ExpList) %>% 
-#     summarize_all(funs(IQR),na.rm=TRUE) %>% 
-#     t() %>%
-#     data.frame() %>% 
-#     rename(IQR=".")
-#Air$Pollutant=rownames(Air)
-#rownames(Air)=c(1:dim(Air)[1])
+     rename(IQR=".")
+Air$Pollutant=rownames(Air)
+rownames(Air)=c(1:dim(Air)[1])
 
 alllist2=distinct(Result.1stall,Outcome,Pollutant,Lag,keep_all=TRUE)
 
@@ -189,9 +173,9 @@ for (mm in 1:dim(alllist2)[1]){
      beta = select(temp2nd, Place, estimate, variable) %>% 
           dcast(Place~ variable, value.var = 'estimate') %>% 
           select(-Place)
-     covarint <- array(NA,c(2,2,dim(beta)[1]))
+     covarint <- array(NA,c(4,4,dim(beta)[1]))
           for (nnn in 1:dim(beta)[1]){
-          tt = as.matrix(temp2nd[c((nnn*2-1):(nnn*2)),c(5:6)])
+          tt = as.matrix(temp2nd[c((nnn*4-3):(nnn*4)),c(5:8)])
           covarint[,,nnn]= tt
           rm(tt)
      }
@@ -211,13 +195,11 @@ tlnise.result2= do.call(rbind, tlnise.result)
 tlnise.result3 = tlnise.result2 %>% 
      rename(PE = est, SE = se) %>% 
      mutate(Z = PE/SE, P = 1 - 2*abs(0.5-(1-pnorm(Z)))) %>% 
-     inner_join(Air, by = c('Variable','Pollutant')) %>% 
+     inner_join(Air, by = 'Pollutant') %>% 
      mutate(Effect = exp(PE*IQR), LCI = exp((PE-1.96*SE)*IQR), UCI = exp((PE+1.96*SE)*IQR))
 
 filter(tlnise.result3,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Variable, Lag, N, IQR, Effect, LCI, UCI)
 filter(tlnise.result3,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Variable, Lag, N, IQR, Effect, LCI, UCI)
-
-tlnise.result3 %>% filter(P<0.15)
 ```
 
 Make a plot
@@ -234,9 +216,8 @@ tlnise.result4 = mutate(tlnise.result3, Name=case_when(Pollutant == 'asalt'~ "Ag
                                                             PE < 0 & P < 0.10 ~ 'green',
                                                             PE > 0 & P < 0.05 ~ 'red',
                                                             PE > 0 & P < 0.10 ~ 'orange',
-                                                            TRUE ~ 'black'),
-                                        Sh_type = ifelse(P <0.05, 16, 1 ))
-
+                                                            TRUE ~ 'black'))
+                    
 tlnise.result4 = filter(tlnise.result4, Pollutant!='fsalt'& Pollutant!='asalt')
 tlnise.result4$Name[tlnise.result4$Name=='PM2.5'] = '"PM[2.5]"'
 tlnise.result4$Name = factor(tlnise.result4$Name)
@@ -251,30 +232,35 @@ OutcomeList = select(tlnise.result4, Outcome) %>%
 Cardio = filter(tlnise.result4, Outcome == 'Cardio') %>% 
      ggplot(aes(x=Lag,y=Effect,color=Variable)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35,position = position_dodge(width = 0.50))+
-     	geom_point(aes(), cex=3.25,position = position_dodge(width = 0.50))+
+     	geom_point(aes(),cex=3.25,position = position_dodge(width = 0.50))+
+        #  scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
           xlab("")+
           ggtitle('Cardiovascular related Hospital Admission')+
           theme_bw()+
-          scale_colour_manual(values=c("#00BFC4", "#F8766D"), name = 'Season', breaks=c('exposure_cool', 'exposure_warm'),labels=c('Cool','Warm'))+
-          theme(plot.title = element_text(hjust = 0.5), 
+       #   scale_color_identity()+
+          #scale_color_manual(values=c("blue", "black", "green","orange", "red"),breaks = c("blue", "black", "green","orange", "red"))+
+          theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
                 axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
+
 
 Resp = filter(tlnise.result4, Outcome == 'Resp') %>% 
      ggplot(aes(x=Lag,y=Effect,color=Variable)) +
      	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35,position = position_dodge(width = 0.50))+
      	geom_point(aes(),cex=3.25,position = position_dodge(width = 0.50))+
+        #  scale_y_continuous(limits = c(0.95,1.05))+
           facet_grid(.~Pollutant)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
           xlab("")+
           ggtitle('Respiratory related Hospital Admission')+
           theme_bw()+
-         scale_colour_manual(values=c("#00BFC4", "#F8766D"), name = 'Season', breaks=c('exposure_cool', 'exposure_warm'),labels=c('Cool','Warm'))+
-          theme(plot.title = element_text(hjust = 0.5), 
+       #   scale_color_identity()+
+#          scale_color_manual(values=c("black", "red", "blue"),breaks = c('black','red','blue'))+
+          theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
                 axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
