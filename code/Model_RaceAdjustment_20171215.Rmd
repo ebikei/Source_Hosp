@@ -126,6 +126,7 @@ Now Let's analyze data using new data frame
 OutComeList = c('Cardio','Resp')
 ExpList = c("totpm25","secsulf","secnit","vehic","biomass","soil","fsalt","asalt","Al","NH4.","Sb","As","Ba","Br","Cd","Ca","Ce","Cs","Cl","Cr","Co","Cu","EC","In","Fe","Pb","Mg","Mn","Ni","OC","P","K","Rb","Se","Si","Ag","Na","K.","NA.","Sr","SO42.","S","Sn","Ti","NO3.","V","Zn","Zr")
 LagNum = c(0:2)
+#LagNum = c(0:3)
 alllist = expand.grid(OutComeList, ExpList, LagNum) #Create all possible combinations 
 names(alllist)=c('Outcome','Exposure','Lag') #Label columns
 alllist$Outcome=as.character(alllist$Outcome)

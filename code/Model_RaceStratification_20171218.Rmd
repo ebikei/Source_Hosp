@@ -77,8 +77,8 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-     filter(Race == 'white') %>% 
-     group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
+     filter(Race == 'hispanic') %>% 
+     group_by(Name,date, disease) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
      left_join(AirWeather2, by = c('Name', 'date')) 
@@ -125,7 +125,7 @@ for (iii in 1:dim(alllist)[1]){
      out = DF %>% 
           arrange(Name, date) %>%
           filter(disease == alllist[iii,1]) %>% 
-          group_by(Name,Race) %>% 
+          group_by(Name) %>% 
           arrange(date) %>% 
           mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
           ungroup() %>% 
