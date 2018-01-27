@@ -77,49 +77,16 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
+#    filter(Age == '00to18') %>%      
      group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
      left_join(AirWeather2, by = c('Name', 'date')) 
+
+DF_warm = filter(DF, Warm ==1)
+DF_cool = filter(DF, Cool ==1)
 ```
-Make summary statistics
 
-```{r}
-DF %>% 
-     group_by(Name) %>% 
-     summarize(PM25 = mean(totpm25, na.rm = TRUE), BioMass = mean(biomass, na.rm = TRUE), 
-               SecNit = mean(secnit, na.rm = TRUE), SecSulf = mean(secsulf, na.rm = TRUE), 
-               Soil = mean(soil, na.rm = TRUE), Vehic = mean(vehic, na.rm = TRUE))
-
-DF %>% 
-     group_by(Warm) %>% 
-     summarize(PM25 = mean(totpm25, na.rm = TRUE), BioMass = mean(biomass, na.rm = TRUE), 
-               SecNit = mean(secnit, na.rm = TRUE), SecSulf = mean(secsulf, na.rm = TRUE), 
-               Soil = mean(soil, na.rm = TRUE), Vehic = mean(vehic, na.rm = TRUE))
-
-DF %>% 
-     group_by(Name,Warm) %>% 
-     summarize(PM25 = mean(totpm25, na.rm = TRUE), BioMass = mean(biomass, na.rm = TRUE), 
-               SecNit = mean(secnit, na.rm = TRUE), SecSulf = mean(secsulf, na.rm = TRUE), 
-               Soil = mean(soil, na.rm = TRUE), Vehic = mean(vehic, na.rm = TRUE))
-
-DF %>% 
-     group_by(Name) %>% 
-     summarize(cor(totpm25, biomass, use = 'pairwise.complete.obs'))
-
-# Correlation between Sec.Nitrate and PM2.5
-DF %>% 
-       group_by(Name) %>%
-       do(data.frame(Cor=t(cor(.[,c(6:7,9:12)], .[,8], use = 'pairwise.complete.obs'))))
-
-# Correlation between Sec.Sulfate and PM2.5
-DF %>% 
-       group_by(Name) %>%
-       do(data.frame(Cor=t(cor(.[,c(6:7,9:12)], .[,6], use = 'pairwise.complete.obs'))))
-
-
-#save(DF,file='C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\DF_20171114.RData')
-```
 Now Let's analyze data using new data frame
 
 ```{r}
@@ -138,14 +105,10 @@ df.temp=3
 df.rh=3
 df.day=4*8 #4/year*8 years
 
-Result.1st=list()
-ptm=proc.time()
-
 PoisModel<-function(datasetname){
 #     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Cool')
      covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)') 
-#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','YEAR')
-#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)', 'YEAR','Warm')     
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','YEAR','Warm')     
      model=as.formula(paste("Case~exposure+",paste(covariates,collapse="+")))
      fit=glm(model,
              data=datasetname,
@@ -157,11 +120,15 @@ PoisModel<-function(datasetname){
 pol_list = c("totpm25","secsulf","secnit","vehic","biomass","soil")
 alllist = filter (alllist, Exposure %in% pol_list)
 
+
+ptm=proc.time()
+#Warm Season
+Result.1st_warm=list()
 for (iii in 1:dim(alllist)[1]){
      tryCatch({ 
      tempname=alllist[iii,2]
-     DF$target_val = DF[,c(tempname)]
-     out = DF %>% 
+     DF_warm$target_val = DF_warm[,c(tempname)]
+     out = DF_warm %>% 
           arrange(Name, date) %>%
           filter(disease == alllist[iii,1]) %>% 
           group_by(Name, Race) %>% 
@@ -174,60 +141,108 @@ for (iii in 1:dim(alllist)[1]){
           do(data=PoisModel(data=.) %>% tidy()) %>%
           unnest() %>% 
           filter(term == 'exposure') %>% 
-          mutate(Lag = alllist[iii,3], Pollutant = tempname, Outcome = alllist[iii,1])
-          Result.1st[[iii]] <- out
+          mutate(Lag = alllist[iii,3], Pollutant = tempname, Outcome = alllist[iii,1], Season = 'Warm')
+          Result.1st_warm[[iii]] <- out
           rm(out, tempname)
      }, error=function(e){})           
 }
+
+
+#Cool Season
+Result.1st_cool=list()
+for (iii in 1:dim(alllist)[1]){
+     tryCatch({ 
+     tempname=alllist[iii,2]
+     DF_cool$target_val = DF_cool[,c(tempname)]
+     out = DF_cool %>% 
+          arrange(Name, date) %>%
+          filter(disease == alllist[iii,1]) %>% 
+          group_by(Name, Race) %>% 
+          arrange(date) %>% 
+          mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
+          ungroup() %>% 
+          filter(!is.na(exposure)& !is.na(meantemp)) %>% 
+          arrange(date) %>% 
+          group_by(Name) %>% 
+          do(data=PoisModel(data=.) %>% tidy()) %>%
+          unnest() %>% 
+          filter(term == 'exposure') %>% 
+          mutate(Lag = alllist[iii,3], Pollutant = tempname, Outcome = alllist[iii,1], Season = 'Cool')
+          Result.1st_cool[[iii]] <- out
+          rm(out, tempname)
+     }, error=function(e){})           
+}
+
 proc.time() - ptm
-Result.1stall = do.call(rbind, Result.1st)
+Result.1stall_warm = do.call(rbind, Result.1st_warm)
+Result.1stall_cool = do.call(rbind, Result.1st_cool)
+Result.1stall = rbind(Result.1stall_warm, Result.1stall_cool)
 
 filter(Result.1stall, p.value<0.05, estimate>0) %>% arrange(estimate)
 filter(Result.1stall, p.value<0.05, estimate<0) %>% arrange(estimate)  
 ```
 Second Stage Analysis
 ```{r include=FALSE}
-
-Air= select_(DF, .dots = ExpList) %>% 
+ExpList2 = c(ExpList,'Cool')
+Air= DF %>% 
+     select_( .dots = ExpList2) %>% 
+     group_by(Cool) %>% 
      summarize_all(funs(IQR),na.rm=TRUE) %>% 
      t() %>%
      data.frame() %>% 
-     rename(IQR=".")
-Air$Pollutant=rownames(Air)
-rownames(Air)=c(1:dim(Air)[1])
+     rename(Summer = 'X1', Winter = 'X2') %>% 
+     mutate(Pollutant = rownames(.)) %>% 
+     melt(id.vars=c('Pollutant')) %>% 
+     mutate(Season = case_when(variable == 'Summer'~ "Warm", variable == 'Winter' ~ 'Cool')) %>%
+     filter(Pollutant != 'Cool') %>% 
+     rename (IQR = value) %>% 
+     select(Season, Pollutant, IQR)
 
-alllist2=distinct(Result.1stall,Outcome,Pollutant,Lag,keep_all=TRUE)
+# If want to use annual IQR, use this code
+#Air= select_(DF, .dots = ExpList) %>% 
+#     summarize_all(funs(IQR),na.rm=TRUE) %>% 
+#     t() %>%
+#     data.frame() %>% 
+#     rename(IQR=".")
+#Air$Pollutant=rownames(Air)
+#rownames(Air)=c(1:dim(Air)[1])
+
+alllist2=distinct(Result.1stall,Outcome,Pollutant,Lag,Season, keep_all=TRUE)
 
 tlnise.result=data.frame()
 for (mm in 1:dim(alllist2)[1]){
-     temp2nd=filter(Result.1stall,Outcome==alllist2$Outcome[mm],Pollutant==alllist2$Pollutant[mm],Lag==alllist2$Lag[mm])
+     temp2nd=filter(Result.1stall,Outcome==alllist2$Outcome[mm],Pollutant==alllist2$Pollutant[mm],Lag==alllist2$Lag[mm], Season == alllist2$Season[mm])
      set.seed(21)
      prior=0
      seed <- round(10000*runif(1))
      tlnise.out=tlnise(temp2nd$estimate,temp2nd$std.error^2,prior=prior,maxiter=5000,seed=seed)
-     tlnise.out2=data.frame(cbind(as.character(alllist2$Outcome[mm]),as.character(alllist2$Pollutant[mm]),as.character(alllist2$Lag[mm]), dim(temp2nd)[1],as.numeric(as.character(tlnise.out$gamma[1])),as.numeric(as.character(tlnise.out$gamma[2]))))
+     tlnise.out2=data.frame(cbind(as.character(alllist2$Outcome[mm]),as.character(alllist2$Pollutant[mm]),as.character(alllist2$Lag[mm]), as.character(alllist2$Season[mm]), dim(temp2nd)[1],as.numeric(as.character(tlnise.out$gamma[1])),as.numeric(as.character(tlnise.out$gamma[2]))))
      tlnise.result=rbind(tlnise.result,tlnise.out2)
      rm(temp2nd,tlnise.out,tlnise.out2)
 }
 ```
 ```{r}
-colnames(tlnise.result)=c('Outcome','Pollutant','Lag','N','PE','SE')
+colnames(tlnise.result)=c('Outcome','Pollutant','Lag','Season','N','PE','SE')
 tlnise.result$Pollutant=as.character(tlnise.result$Pollutant)
 tlnise.result$Outcome=as.character(tlnise.result$Outcome)
 tlnise.result$Lag=as.numeric(as.character(tlnise.result$Lag))
+tlnise.result$Season = as.character(tlnise.result$Season)
 tlnise.result$N=as.numeric(as.character(tlnise.result$N))
 tlnise.result$PE=as.numeric(as.character(tlnise.result$PE))
 tlnise.result$SE=as.numeric(as.character(tlnise.result$SE))
 tlnise.result$Z=tlnise.result$PE/tlnise.result$SE
 tlnise.result$P= 1 - 2*abs(0.5-(1-pnorm(tlnise.result$Z))) 
 
-tlnise.result2=inner_join(tlnise.result,Air,by='Pollutant')
+tlnise.result2=inner_join(tlnise.result,Air,by=c('Pollutant','Season'))
 tlnise.result2$Effect=exp(tlnise.result2$PE*tlnise.result2$IQR)
 tlnise.result2$LCI=exp((tlnise.result2$PE-1.96*tlnise.result2$SE)*tlnise.result2$IQR)
 tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2$IQR)
 
-filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
-filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
+tlnise.result2 = tlnise.result2 %>% 
+     arrange(Outcome, Pollutant, Lag, Season)
+
+filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season, N, IQR, Effect, LCI, UCI)
+filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, Season, N, IQR, Effect, LCI, UCI)
 ```
 
 Make a plot
@@ -257,98 +272,37 @@ tlnise.result3$Lag = as.factor(tlnise.result3$Lag)
 OutcomeList = select(tlnise.result3, Outcome) %>%
           distinct(Outcome, Pollutant)
 
+
 Cardio = filter(tlnise.result3, Outcome == 'Cardio') %>% 
-     ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
-     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
-     	geom_point(aes(),cex=3.25)+
-        #  scale_y_continuous(limits = c(0.95,1.05))+
+     ggplot(aes(x=Lag,y=Effect,color=Season)) +
+     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35,position = position_dodge(width = 0.50))+
+     	geom_point(aes(), cex=3.25,position = position_dodge(width = 0.50))+
           facet_grid(.~Pollutant)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
           xlab("")+
           ggtitle('Cardiovascular related Hospital Admission')+
           theme_bw()+
-          scale_color_identity()+
-          #scale_color_manual(values=c("blue", "black", "green","orange", "red"),breaks = c("blue", "black", "green","orange", "red"))+
-          theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
+          scale_colour_manual(values=c("#00BFC4", "#F8766D"), name = 'Season', breaks=c('Cool', 'Warm'),labels=c('Cool','Warm'))+
+          theme(plot.title = element_text(hjust = 0.5), 
                 axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
-
 Resp = filter(tlnise.result3, Outcome == 'Resp') %>% 
-     ggplot(aes(x=Lag,y=Effect,color=LineCol)) +
-     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
-     	geom_point(aes(),cex=3.25)+
-        #  scale_y_continuous(limits = c(0.95,1.05))+
+     ggplot(aes(x=Lag,y=Effect,color=Season)) +
+     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35,position = position_dodge(width = 0.50))+
+     	geom_point(aes(), cex=3.25,position = position_dodge(width = 0.50))+
           facet_grid(.~Pollutant)+
      	geom_hline(yintercept=1,color='Black')+ 
           ylab("OR per IQR increase")+
           xlab("")+
           ggtitle('Respiratory related Hospital Admission')+
           theme_bw()+
-          scale_color_identity()+
-#          scale_color_manual(values=c("black", "red", "blue"),breaks = c('black','red','blue'))+
-          theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
+          scale_colour_manual(values=c("#00BFC4", "#F8766D"), name = 'Season', breaks=c('Cool', 'Warm'),labels=c('Cool','Warm'))+
+          theme(plot.title = element_text(hjust = 0.5), 
                 axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
                 panel.grid.minor = element_blank())
 
 grid.arrange(Cardio, Resp, ncol=1)
 
 ```
-Plot City Specific Results
-```{r}
-p = list()
-for (mm in 1:12){
-#mm = 10     
-     Plot = filter(Result.1stall,Outcome==alllist2$Outcome[mm],Pollutant==alllist2$Pollutant[mm]) %>% 
-          inner_join(Air, by='Pollutant') %>% 
-          mutate(Effect = exp(estimate*IQR),
-                 LCI = exp((estimate-1.96*std.error)*IQR),
-                 UCI = exp((estimate+1.96*std.error)*IQR),               
-                 LineCol = case_when(estimate < 0 & p.value < 0.05 ~ 'blue',
-                                             estimate < 0 & p.value < 0.10 ~ 'green',
-                                             estimate > 0 & p.value < 0.05 ~ 'red',
-                                             estimate > 0 & p.value < 0.10 ~ 'orange',
-                                             TRUE ~ 'black')) %>% 
-          ggplot(aes(x=Name,y=Effect,color=LineCol)) +
-          	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
-          	geom_point(aes(),cex=3.25)+
-               facet_grid(.~Lag)+
-     	     geom_hline(yintercept=1,color='Black')+
-               ylab("OR per IQR increase")+
-               xlab("")+
-               ggtitle(paste(alllist2$Outcome[mm],' related Hospital Admission and ', alllist2$Pollutant[mm], ' exposure', sep=''))+
-               theme_bw()+
-               scale_color_identity()+
-               theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
-                axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
-                panel.grid.minor = element_blank())
-     p[[mm]] = Plot
-}
-
-test = marrangeGrob(grobs = p, nrow=2, ncol=1)
-
-pdf("C:\\Users\\kebisu\\Downloads\\Hosp.pdf", onefile = TRUE,20,15)
-grid.draw(test)
-dev.off()
-
-mm=10
-tldata = filter(Result.1stall,Outcome==alllist2$Outcome[mm],Pollutant==alllist2$Pollutant[mm], Lag ==alllist2$Lag[mm]) %>% 
-     inner_join(Air, by='Pollutant') %>% 
-     mutate(Effect = exp(estimate*IQR),
-            LCI = exp((estimate-1.96*std.error)*IQR),
-            UCI = exp((estimate+1.96*std.error)*IQR),               
-            LineCol = case_when(estimate < 0 & p.value < 0.05 ~ 'blue',
-                                        estimate < 0 & p.value < 0.10 ~ 'green',
-                                        estimate > 0 & p.value < 0.05 ~ 'red',
-                                        estimate > 0 & p.value < 0.10 ~ 'orange',
-                                        TRUE ~ 'black')) 
-set.seed(21)
-prior=0
-seed <- round(10000*runif(1))
-tlnise.out=tlnise(tldata$estimate,tldata$std.error^2,prior=prior,maxiter=5000,seed=seed)
-tlnise.out$gamma     
-     
-     
-```
-

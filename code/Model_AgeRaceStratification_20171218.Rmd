@@ -77,7 +77,7 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-     filter(Race == 'hispanic', Age == '00to18') %>% 
+     filter(Race == 'hispanic', Age == '65to99') %>% 
      group_by(Name,date, disease) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
@@ -105,8 +105,9 @@ Result.1st=list()
 ptm=proc.time()
 
 PoisModel<-function(datasetname){
-#     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)','Warm')
-     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')     
+#     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)','Cool')
+     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')
+#     covariates=c('DayIndex', 'ns(meanapptemp,df.temp)','ns(day,df.day)', 'YEAR','Warm')        
      model=as.formula(paste("Case~exposure+",paste(covariates,collapse="+")))
      fit=glm(model,
              data=datasetname,

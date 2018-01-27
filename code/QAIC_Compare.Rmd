@@ -1,0 +1,167 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Basic Data manicupaltion (Wide to Long)
+```{r include=FALSE}
+x<-c('tidyverse','reshape2','splines','ggthemes','tlnise','gridExtra','data.table','zoo','forcats','broom','bbmle')
+lapply(x, require, character.only=T)
+#setwd('K:\\Research\\PMSource_Hosp\\Code\\R\\NoteBook')
+options(dplyr.width = Inf)
+
+load("C:\\Users\\kebisu\\Documents\\Research\\PMSource_Hosp\\Data\\OriginalData_20171214.RData") #Original_df
+
+Original_df2 = Original_df %>% 
+     select(-cardio_disease_age19to49, -cardio_disease_age50to64, -resp_disease_age19to49, -resp_disease_age50to64) %>% 
+     select(Name, Zone, date, cardio_disease_white0to18:resp_disease_hispanic75up) %>% 
+     gather(variable, measurement, cardio_disease_white0to18:resp_disease_hispanic75up, factor_key=TRUE) %>% 
+     mutate(Race = str_extract(variable, pattern = "(white)|(hispanic)|(asian)|(black)"), 
+         Age = str_extract(variable, pattern = "(0to18)|(19to49)|(50to64)|(65to74)|(75up)"),
+         disease = str_extract(variable, pattern = "(cardio)|(resp)")) %>% 
+     mutate(disease = replace(disease, disease == 'cardio', 'Cardio'), disease = replace(disease, disease == 'resp', 'Resp'), Age = replace(Age, Age == '0to18', '00to18'), Age = replace(Age, Age == '75up', '75to99')) %>% 
+     mutate(Age3 = case_when(Age == '00to18' ~ '00to18', Age == '19to49' ~ '19to64', Age == '50to64' ~ '19to64', Age =='65to74' ~ '65to99', Age == '75to99' ~ '65to99')) %>% 
+     select(Name, Zone, date, disease, Age3, Race, measurement) %>% 
+     arrange(Name, Zone, date, disease, Age3, Race) %>% 
+     rename(Age = Age3)
+Original_df2$Name = as.character(Original_df2$Name)
+```
+
+Now Let's rearrange data to the way I want to analyze
+```{r}
+#This air dataset is coming from K:\Research\PMSource_LBW\Code\R\AirData.R
+air_df = read.csv('K:\\Research\\PMSource_LBW\\Data\\AirData_20160520.csv', stringsAsFactors=F)
+air_df$date = as.Date(air_df$date, format = "%m/%d/%Y")
+ # Weather Data better cireate other file
+load('K:\\Research\\PMSource_Hosp\\Data\\WeatherData.RData') #WeatherData
+WeatherData = rename(WeatherData,date = DATE)
+WeatherData$Name = as.character(WeatherData$Name)
+
+# Exposure variables and related variables
+Hol_List=c('2002-01-01','2002-05-27','2002-07-04','2002-09-02','2002-11-28','2002-12-25',
+           '2003-01-01','2003-05-26','2003-07-04','2003-09-01','2003-11-27','2003-12-25',
+           '2004-01-01','2004-05-31','2004-07-04','2004-09-06','2004-11-25','2004-12-25',
+           '2005-01-01','2005-05-30','2005-07-04','2005-09-05','2005-11-24','2005-12-25',
+           '2006-01-01','2006-05-29','2006-07-04','2006-09-04','2006-11-23','2006-12-25',
+           '2007-01-01','2007-05-28','2007-07-04','2007-09-03','2007-11-22','2007-12-25',
+           '2008-01-01','2008-05-26','2008-07-04','2008-09-01','2008-11-27','2008-12-25',
+           '2009-01-01','2009-05-25','2009-07-04','2009-09-07','2009-11-26','2009-12-25')
+Hol_List=as.Date(Hol_List,"%Y-%m-%d")
+
+# Merge Air, Weather, and calendar info data
+AirWeather = Original_df2 %>% 
+     distinct(Name, date) %>% 
+     left_join(air_df, by =c('Name','date')) %>% 
+     left_join(WeatherData, by =c('Name', 'date')) %>% 
+     select(-Site, -loca, -SITE, -stn_id) %>% 
+     mutate(DOW=weekdays(date),     
+            Weekend=case_when(DOW=='Saturday'~1,DOW=='Sunday'~1,DOW=='Monday'~0,DOW=='Tuesday'~0,
+                              DOW=='Wednesday'~0,DOW=='Thursday'~0,DOW=='Friday'~0),
+            day=as.numeric(date-as.Date('2001-12-31')),
+            Holiday=ifelse(date %in% Hol_List,1,0),
+            HolWend=ifelse(Weekend==1,1,ifelse(Holiday==1,1,0)))  %>% 
+     arrange(Name, date)     
+
+AirWeather2 = data.table(AirWeather)
+setkey(AirWeather2,Name, date)
+AirWeather2[,index_temp:=rollapply(HolWend,2,sum,align=c('right'),fill=NA,na.rm=TRUE,partial=TRUE),by=Name]
+AirWeather2 = data.frame(AirWeather2)
+AirWeather2 = mutate(AirWeather2, AfterHolWend = ifelse(HolWend==0 & index_temp==1, 1, 0),
+            DayIndex = ifelse(HolWend==1,'HolWend',ifelse(AfterHolWend==1,'AfterHolWend','Weekday'))) %>% 
+     select(-index_temp)
+AirWeather2$DayIndex = as.factor(AirWeather2$DayIndex)
+AirWeather2$DayIndex = relevel(AirWeather2$DayIndex,ref='Weekday')
+
+warm = c('05','06','07','08','09','10')
+AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0), Cool = ifelse( Warm == 1, 0, 1 ), YEAR = as.factor(substr(date, 1, 4)), Year_Con = as.numeric(substr(date, 1, 4))) 
+
+#Create Data for Analysis
+DF = filter(Original_df2, Zone!='C') %>% 
+     group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
+     summarise(Case = sum(measurement)) %>% 
+     data.frame() %>%     
+     left_join(AirWeather2, by = c('Name', 'date')) 
+```
+
+Now Let's analyze data using new data frame
+
+```{r}
+OutComeList = c('Cardio','Resp')
+ExpList = c("totpm25","secsulf","secnit","vehic","biomass","soil","fsalt","asalt","Al","NH4.","Sb","As","Ba","Br","Cd","Ca","Ce","Cs","Cl","Cr","Co","Cu","EC","In","Fe","Pb","Mg","Mn","Ni","OC","P","K","Rb","Se","Si","Ag","Na","K.","NA.","Sr","SO42.","S","Sn","Ti","NO3.","V","Zn","Zr")
+LagNum = c(0:2)
+#LagNum = c(0:3)
+alllist = expand.grid(OutComeList, ExpList, LagNum) #Create all possible combinations 
+names(alllist)=c('Outcome','Exposure','Lag') #Label columns
+alllist$Outcome=as.character(alllist$Outcome)
+alllist$Exposure=as.character(alllist$Exposure)
+alllist$denomi = c('Pop')
+
+
+df.temp=3
+df.rh=3
+df.day=8*8 #4/year*8 years
+
+Result.1st=list()
+ptm=proc.time()
+
+
+PoisModel_normal<-function(datasetname){
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Cool')
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)') 
+     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','YEAR')
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','Warm','YEAR')     
+     model=as.formula(paste("Case~exposure+",paste(covariates,collapse="+")))
+     fit=glm(model,
+             data=datasetname,
+             family=poisson,
+             na.action = na.exclude,
+             control=glm.control(maxit = 1000,epsilon = 1e-8))
+}
+
+
+pol_list = c("totpm25","secsulf","secnit","vehic","biomass","soil")
+alllist = filter (alllist, Exposure %in% pol_list)
+
+
+dfun <- function(object){
+     with(object,sum((weights * residuals^2)[weights > 0])/df.residual)
+}
+
+output = data.frame()
+for (iii in 1:dim(alllist)[1]){
+     tryCatch({ 
+     tempname=alllist[iii,2]
+     DF$target_val = DF[,c(tempname)]
+     out = DF %>% 
+          arrange(Name, date) %>%
+          filter(disease == alllist[iii,1]) %>% 
+          group_by(Name, Race) %>% 
+          arrange(date) %>% 
+          mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
+          ungroup() %>% 
+          filter(!is.na(exposure)& !is.na(meantemp)) %>% 
+          arrange(date) 
+
+     for (qqq in 1:length(unique(DF$Name))){
+          tryCatch({ 
+          out2 = out %>% 
+               filter(Name == unique(DF$Name)[qqq])
+          model_qaic = PoisModel_normal(out2)
+          value = qAIC(model_qaic,dispersion=dfun(model_qaic))
+          temp = data.frame(alllist[iii,1], alllist[iii,2], alllist[iii,3], unique(DF$Name)[qqq], value)
+          names(temp) = c('Disease','Pollutant','Lag','Name','QAIC')
+          output = rbind(output,temp)
+          rm(value, temp, out2)
+          }, error=function(e){})         
+     }
+     rm(out)
+     }, error=function(e){})        
+}     
+     
+output = arrange(output, Disease, Pollutant, Lag, Name)     
+Sum_QAIC = group_by(output, Disease, Pollutant, Lag) %>% 
+          summarize(QAIC = sum(QAIC))
+
+write.csv(output, file ='C:\\Users\\kebisu\\Desktop\\output.csv')
+write.csv(Sum_QAIC, file ='C:\\Users\\kebisu\\Desktop\\Sum_QAIC.csv')
+```

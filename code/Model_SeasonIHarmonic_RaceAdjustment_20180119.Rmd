@@ -5,7 +5,7 @@ output: html_notebook
 
 Basic Data manicupaltion (Wide to Long)
 ```{r include=FALSE}
-x<-c('tidyverse','reshape2','splines','ggthemes','tlnise','gridExtra','data.table','zoo','forcats','broom')
+x<-c('tidyverse','reshape2','splines','ggthemes','tlnise','gridExtra','data.table','zoo','forcats','broom','grid')
 lapply(x, require, character.only=T)
 #setwd('K:\\Research\\PMSource_Hosp\\Code\\R\\NoteBook')
 options(dplyr.width = Inf)
@@ -82,11 +82,14 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-#    filter(Age == '00to18') %>% 
+  #   filter(Age == '65to99') %>% 
      group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
-     left_join(AirWeather2, by = c('Name', 'date')) 
+     left_join(AirWeather2, by = c('Name', 'date')) %>% 
+     arrange(Name, disease, Race, date) %>% 
+     mutate(dayindexorig = rep(c(1:365,1:365,1:59,59.5,60:365,1:365,1:365,1:365,1:59,59.5,60:365,1:365),64)) %>% 
+     arrange(Name, date, disease, Race)
 ```
 Now Let's analyze data using new data frame
 
@@ -102,17 +105,33 @@ alllist$Exposure=as.character(alllist$Exposure)
 alllist$Place = as.character(alllist$Place)
 alllist$denomi = c('Pop')
 
+harmonic2 <- function(x,  ## time vector
+                      n1,  ## number of sine frequencies to use
+                      n2,  ## number of cosine frequencies to use
+                      period  ## period in days
+                      ) {
+    stopifnot(n1 > 0, n2 > 0)
+
+    pi <- base::pi
+    x <- as.numeric(x)
+    N1 <- seq(0, n1 - 1)
+    N2 <- seq(0, n2 - 1)
+    k1 <- 2^N1 * 2 * pi / period
+    k2 <- 2^N2 * 2 * pi / period
+    M1 <- outer(x, k1)
+    M2 <- outer(x, k2)
+    sinM <- apply(M1, 2, sin)
+    cosM <- apply(M2, 2, cos)
+    cbind(sinM, cosM)
+}
 
 df.temp=3
 df.rh=3
 df.day=4*8 #4/year*8 years
 
 PoisModel<-function(datasetname){
-#     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)',  'Warm') 
-     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)')
-#     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','YEAR')      
-#     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','YEAR','Warm') 
-#     covariates=c('exposure_cool','exposure_warm','DayIndex')     
+#     covariates=c('exposure_cool','exposure_warm','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)',  'Cool') 
+     covariates=c('exposure','harmonic2(date, 1, 1,365):exposure','DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Cool') 
      model=as.formula(paste("Case~",paste(covariates,collapse="+")))
      fit=glm(model,
              data=datasetname,
@@ -135,12 +154,12 @@ for (iii in 1:dim(alllist)[1]){
           filter(Name == alllist[iii, 4], disease == alllist[iii,1]) %>% 
           arrange(date) %>%
           group_by(Race) %>% 
-          mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA), exposure_warm = exposure*Warm, exposure_cool = exposure*Cool) %>% 
+          mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
           ungroup() %>% 
-          filter(!is.na(exposure_warm) & !is.na(meantemp)) 
+          filter(!is.na(exposure)) 
      out1 = PoisModel(DF_temp)
-     temp_matrix = out1$cov.unscaled[c(2:3),c(2:3)] * out1$dispersion 
-     out = cbind(out1$coefficients[c(2:3),], data.frame(temp_matrix))
+     temp_matrix = out1$cov.unscaled[c('exposure','exposure:harmonic2(date, 1, 1, 365)1','exposure:harmonic2(date, 1, 1, 365)2'),c('exposure','exposure:harmonic2(date, 1, 1, 365)1','exposure:harmonic2(date, 1, 1, 365)2')] * out1$dispersion 
+     out = cbind(out1$coefficients[c('exposure','exposure:harmonic2(date, 1, 1, 365)1','exposure:harmonic2(date, 1, 1, 365)2'),], data.frame(temp_matrix))
      out = out %>% 
           mutate(variable = rownames(.), Outcome = alllist[iii,1], Pollutant = alllist[iii,2], Lag = alllist[iii,3], Place = alllist[iii,4])
      Result.1st[[iii]] <- out    
@@ -157,20 +176,20 @@ filter(Result.1stall,  p.value<0.05, estimate<0) %>% arrange(estimate)
 ```
 Second Stage Analysis
 ```{r include=FALSE}
-ExpList2 = c(ExpList,'Cool')
+ExpList2 = c(ExpList)
 Air= DF %>% 
      select_( .dots = ExpList2) %>% 
-     group_by(Cool) %>% 
+  #   group_by(Cool) %>% 
      summarize_all(funs(IQR),na.rm=TRUE) %>% 
      t() %>%
      data.frame() %>% 
-     rename(Summer = 'X1', Winter = 'X2') %>% 
+     rename(Year = '.') %>% 
      mutate(Pollutant = rownames(.)) %>% 
      melt(id.vars=c('Pollutant')) %>% 
-     mutate(Variable = case_when(variable == 'Summer'~ "exposure_warm", variable == 'Winter' ~ 'exposure_cool')) %>%
-     filter(Pollutant != 'Cool') %>% 
+    # mutate(Variable = case_when(variable == 'Summer'~ "exposure_warm", variable == 'Winter' ~ 'exposure_cool')) %>%
+     #filter(Pollutant != 'Cool') %>% 
      rename (IQR = value) %>% 
-     select(Variable, Pollutant, IQR)
+     select(variable, Pollutant, IQR)
 
 # If want to use annual IQR, use this code
 #Air= select_(DF, .dots = ExpList) %>% 
@@ -192,9 +211,9 @@ for (mm in 1:dim(alllist2)[1]){
      beta = select(temp2nd, Place, estimate, variable) %>% 
           dcast(Place~ variable, value.var = 'estimate') %>% 
           select(-Place)
-     covarint <- array(NA,c(2,2,dim(beta)[1]))
+     covarint <- array(NA,c(3,3,dim(beta)[1]))
           for (nnn in 1:dim(beta)[1]){
-          tt = as.matrix(temp2nd[c((nnn*2-1):(nnn*2)),c(5:6)])
+          tt = as.matrix(temp2nd[c((nnn*3-2):(nnn*3)),c(5:7)])
           covarint[,,nnn]= tt
           rm(tt)
      }
@@ -214,7 +233,7 @@ tlnise.result2= do.call(rbind, tlnise.result)
 tlnise.result3 = tlnise.result2 %>% 
      rename(PE = est, SE = se) %>% 
      mutate(Z = PE/SE, P = 1 - 2*abs(0.5-(1-pnorm(Z)))) %>% 
-     inner_join(Air, by = c('Variable','Pollutant')) %>% 
+     inner_join(Air, by = c('Pollutant')) %>% 
      mutate(Effect = exp(PE*IQR), LCI = exp((PE-1.96*SE)*IQR), UCI = exp((PE+1.96*SE)*IQR))
 
 filter(tlnise.result3,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Variable, Lag, N, IQR, Effect, LCI, UCI)
@@ -223,64 +242,67 @@ filter(tlnise.result3,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, V
 tlnise.result3 %>% filter(P<0.15)
 ```
 
-Make a plot
-```{r}
-tlnise.result4 = mutate(tlnise.result3, Name=case_when(Pollutant == 'asalt'~ "Aged Sea Salt",
-                                                 Pollutant == 'soil'~"Soil",
-                                                  Pollutant == 'biomass' ~ "Biomass",
-                                                  Pollutant == 'secnit' ~ "Secondary Nitrate",
-                                                  Pollutant == 'secsulf' ~ "Secondary Sulfate",
-                                                  Pollutant == 'fsalt' ~ "Fresh Sea Salt",
-                                                  Pollutant == 'vehic' ~ "Vehicle Emission",
-                                                  Pollutant == 'totpm25' ~ 'PM2.5'),
-                                        LineCol = case_when(PE < 0 & P < 0.05 ~ 'blue',
-                                                            PE < 0 & P < 0.10 ~ 'green',
-                                                            PE > 0 & P < 0.05 ~ 'red',
-                                                            PE > 0 & P < 0.10 ~ 'orange',
-                                                            TRUE ~ 'black'),
-                                        Sh_type = ifelse(P <0.05, 16, 1 ))
+This is the place to start working on Monady
+```{r include=FALSE}
+alllist2=distinct(Result.1stall,Outcome,Pollutant,Lag,keep_all=TRUE)
+B<-harmonic2(1:365,1,1,365)
+int<-rep(1,365)
+B2<-cbind(int,B)
 
-tlnise.result4 = filter(tlnise.result4, Pollutant!='fsalt'& Pollutant!='asalt')
-tlnise.result4$Name[tlnise.result4$Name=='PM2.5'] = '"PM[2.5]"'
-tlnise.result4$Name = factor(tlnise.result4$Name)
-tlnise.result4$Name = relevel(tlnise.result4$Name,'"PM[2.5]"')
-tlnise.result4$Pollutant = factor(tlnise.result4$Pollutant)
-tlnise.result4$Pollutant = relevel(tlnise.result4$Pollutant,'totpm25')
-tlnise.result4$Lag = as.factor(tlnise.result4$Lag)
+set.seed(21)
+prior <- 0
+seed <- round(10000*runif(1))
+p=list()
+for (mm in 1:dim(alllist2)[1]){
+#mm=20
+     temp2nd=filter(Result.1stall, Outcome == alllist2[mm,1], Pollutant == alllist2[mm,2], Lag == alllist2[mm,3])
+     set.seed(21)
+     prior = 0
+     seed <- round(10000*runif(1))
+     beta = select(temp2nd, Place, estimate, variable) %>% 
+          dcast(Place~ variable, value.var = 'estimate') %>% 
+          select(-Place)
+     covarint <- array(NA,c(3,3,dim(beta)[1]))
+          for (nnn in 1:dim(beta)[1]){
+          tt = as.matrix(temp2nd[c((nnn*3-2):(nnn*3)),c(5:7)])
+          covarint[,,nnn]= tt
+          rm(tt)
+     }
+     tlnise.out = tlnise(beta,covarint, prior=prior, maxiter=5000, seed=seed) 
+     coefs = -tlnise.out$gamma
+     varcoefs = tlnise.out$Dgamma
+     coefs2 = coefs[2:3,]
+     varcoefs2 = varcoefs[2:3,2:3]
+     curve = data.frame(B2%*% coefs)
+     curve.stderr = (sqrt(diag( B2%*% varcoefs %*% t(B2))))
+     x = curve.stderr
+     X = c(1:365)
+     info = cbind(curve,x,X)
+     info$est2 = (exp(info$est*10)-1)*100 #Eventually, need to adjust IQR change rather than 10 ug change
+     info$up = (exp(info$est*10+1.96*info$x*10)-1)*100
+     info$down = (exp(info$est*10-1.96*info$x*10)-1)*100
+#     number = length(beta3$X1)
+     text = paste('Outcome (', temp2nd$Outcome[1], ') Pol (', temp2nd$Pollutant[1], ') Lag = ', temp2nd$Lag[1], sep = '')
+     ymax = max(info$up)*1.1
+     ymin = min(info$down)*1.1 
      
-OutcomeList = select(tlnise.result4, Outcome) %>%
-          distinct(Outcome, Pollutant)
+     Plot = ggplot(data = info, aes(x=X)) +
+               geom_line(aes(y = est2)) +
+               geom_line(aes(y = down),linetype = 2) +
+               geom_line(aes(y = up),linetype = 2) +
+               geom_hline(yintercept=0)+
+               geom_vline(xintercept = c(120,304))+
+               labs(x = 'Day of Year', y= 'Percent Change')+
+               ggtitle(text)+
+               theme_bw()+
+               theme(plot.title = element_text(hjust = 0.5))
+     p[[mm]] = Plot
+}     
 
-Cardio = filter(tlnise.result4, Outcome == 'Cardio') %>% 
-     ggplot(aes(x=Lag,y=Effect,color=Variable)) +
-     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35,position = position_dodge(width = 0.50))+
-     	geom_point(aes(), cex=3.25,position = position_dodge(width = 0.50))+
-          facet_grid(.~Pollutant)+
-     	geom_hline(yintercept=1,color='Black')+ 
-          ylab("OR per IQR increase")+
-          xlab("")+
-          ggtitle('Cardiovascular related Hospital Admission')+
-          theme_bw()+
-          scale_colour_manual(values=c("#00BFC4", "#F8766D"), name = 'Season', breaks=c('exposure_cool', 'exposure_warm'),labels=c('Cool','Warm'))+
-          theme(plot.title = element_text(hjust = 0.5), 
-                axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
-                panel.grid.minor = element_blank())
+test=do.call(arrangeGrob,c(p,nrow=6,ncol=6))
 
-Resp = filter(tlnise.result4, Outcome == 'Resp') %>% 
-     ggplot(aes(x=Lag,y=Effect,color=Variable)) +
-     	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35,position = position_dodge(width = 0.50))+
-     	geom_point(aes(),cex=3.25,position = position_dodge(width = 0.50))+
-          facet_grid(.~Pollutant)+
-     	geom_hline(yintercept=1,color='Black')+ 
-          ylab("OR per IQR increase")+
-          xlab("")+
-          ggtitle('Respiratory related Hospital Admission')+
-          theme_bw()+
-         scale_colour_manual(values=c("#00BFC4", "#F8766D"), name = 'Season', breaks=c('exposure_cool', 'exposure_warm'),labels=c('Cool','Warm'))+
-          theme(plot.title = element_text(hjust = 0.5), 
-                axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
-                panel.grid.minor = element_blank())
-
-grid.arrange(Cardio, Resp, ncol=1)
+pdf("C:\\Users\\kebisu\\Downloads\\plots_pm25_summer.pdf", onefile = TRUE,30,15)
+grid.draw(test)
+dev.off()
 
 ```
