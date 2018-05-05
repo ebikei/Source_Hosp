@@ -184,6 +184,8 @@ Result.1stall = do.call(rbind, Result.1st)
 
 filter(Result.1stall, p.value<0.05, estimate>0) %>% arrange(estimate)
 filter(Result.1stall, p.value<0.05, estimate<0) %>% arrange(estimate)  
+
+#save(Result.1stall, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_RaceAdjust_CitySpecific.RData')
 ```
 Second Stage Analysis
 ```{r include=FALSE}
@@ -228,6 +230,8 @@ tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2
 
 filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
 filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
+
+#save(tlnise.result2, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_RaceAdjust.RData')
 ```
 
 Make a plot
@@ -296,10 +300,11 @@ grid.arrange(Cardio, Resp, ncol=1)
 
 ```
 Plot City Specific Results
-```{r}
+```{r eval=FALSE, include=FALSE}
+library(grid)
 p = list()
 for (mm in 1:12){
-#mm = 10     
+#mm = 7     
      Plot = filter(Result.1stall,Outcome==alllist2$Outcome[mm],Pollutant==alllist2$Pollutant[mm]) %>% 
           inner_join(Air, by='Pollutant') %>% 
           mutate(Effect = exp(estimate*IQR),
@@ -332,7 +337,9 @@ pdf("C:\\Users\\kebisu\\Downloads\\Hosp.pdf", onefile = TRUE,20,15)
 grid.draw(test)
 dev.off()
 
-mm=10
+
+mm=7
+
 tldata = filter(Result.1stall,Outcome==alllist2$Outcome[mm],Pollutant==alllist2$Pollutant[mm], Lag ==alllist2$Lag[mm]) %>% 
      inner_join(Air, by='Pollutant') %>% 
      mutate(Effect = exp(estimate*IQR),
@@ -349,6 +356,4 @@ seed <- round(10000*runif(1))
 tlnise.out=tlnise(tldata$estimate,tldata$std.error^2,prior=prior,maxiter=5000,seed=seed)
 tlnise.out$gamma     
      
-     
 ```
-

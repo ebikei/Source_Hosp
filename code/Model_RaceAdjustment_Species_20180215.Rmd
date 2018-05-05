@@ -36,7 +36,7 @@ air_df$date = as.Date(air_df$date, format = "%m/%d/%Y")
 load('K:\\Research\\PMSource_Hosp\\Data\\WeatherData.RData') #WeatherData
 WeatherData = rename(WeatherData,date = DATE)
 WeatherData$Name = as.character(WeatherData$Name)
-
+ 
 # Exposure variables and related variables
 Hol_List=c('2002-01-01','2002-05-27','2002-07-04','2002-09-02','2002-11-28','2002-12-25',
            '2003-01-01','2003-05-26','2003-07-04','2003-09-01','2003-11-27','2003-12-25',
@@ -77,19 +77,32 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-     filter(Race == 'asian') %>% 
-     group_by(Name,date, disease) %>%  #Add/Remove varible here in which level I want to analyze
+#     filter(Age == '00to18') %>% 
+     group_by(Name,date, disease, Race) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
-     left_join(AirWeather2, by = c('Name', 'date')) 
+     left_join(AirWeather2, by = c('Name', 'date'))
+
 ```
 
-Now Let's analyze data using new data frame 
+Plot for very small species to check its distributions
+```{r eval=FALSE, include=FALSE}
+Rb = AirWeather2 %>% 
+     select(date,Name, Rb) %>% 
+     ggplot() +
+     geom_point(aes(x = date, y = Rb)) +
+     facet_grid(facets = Name ~ .) 
+
+
+Rb
+```
+
 
 ```{r}
 OutComeList = c('Cardio','Resp')
 ExpList = c("totpm25","secsulf","secnit","vehic","biomass","soil","fsalt","asalt","Al","NH4.","Sb","As","Ba","Br","Cd","Ca","Ce","Cs","Cl","Cr","Co","Cu","EC","In","Fe","Pb","Mg","Mn","Ni","OC","P","K","Rb","Se","Si","Ag","Na","K.","NA.","Sr","SO42.","S","Sn","Ti","NO3.","V","Zn","Zr")
 LagNum = c(0:2)
+#LagNum = c(0:3)
 alllist = expand.grid(OutComeList, ExpList, LagNum) #Create all possible combinations 
 names(alllist)=c('Outcome','Exposure','Lag') #Label columns
 alllist$Outcome=as.character(alllist$Outcome)
@@ -105,9 +118,10 @@ Result.1st=list()
 ptm=proc.time()
 
 PoisModel<-function(datasetname){
-#     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)','Cool')
-     covariates=c('DayIndex','ns(meanapptemp,df.temp)','ns(day,df.day)')
-#     covariates=c('DayIndex', 'ns(meanapptemp,df.temp)','ns(day,df.day)', 'YEAR','Warm')        
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','Cool')
+     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)') 
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)','ns(day,df.day)','YEAR')
+#     covariates=c('DayIndex','Race','ns(meanapptemp,df.temp)', 'YEAR','Warm')     
      model=as.formula(paste("Case~exposure+",paste(covariates,collapse="+")))
      fit=glm(model,
              data=datasetname,
@@ -116,8 +130,10 @@ PoisModel<-function(datasetname){
              control=glm.control(maxit = 1000,epsilon = 1e-8))
 }
 
-pol_list = c("totpm25","secsulf","secnit","vehic","biomass","soil")
-alllist = filter (alllist, Exposure %in% pol_list)
+pol_list = c("totpm25","secsulf","secnit","vehic","biomass","soil", "fsalt", "asalt")
+alllist = filter (alllist, !(Exposure %in% pol_list))
+#pol_list= c('Fe', 'In', 'NH4.','NO3.','SO42.')
+#alllist = filter (alllist, Exposure %in% pol_list)
 
 for (iii in 1:dim(alllist)[1]){
      tryCatch({ 
@@ -126,13 +142,12 @@ for (iii in 1:dim(alllist)[1]){
      out = DF %>% 
           arrange(Name, date) %>%
           filter(disease == alllist[iii,1]) %>% 
-          group_by(Name) %>% 
+          group_by(Name, Race) %>% 
           arrange(date) %>% 
           mutate(exposure = lag(target_val, n = alllist[iii,3], default = NA)) %>% 
           ungroup() %>% 
           filter(!is.na(exposure)& !is.na(meantemp)) %>% 
           arrange(date) %>% 
-         # filter(!is.na(meantemp)) %>% 
           group_by(Name) %>% 
           do(data=PoisModel(data=.) %>% tidy()) %>%
           unnest() %>% 
@@ -147,7 +162,10 @@ Result.1stall = do.call(rbind, Result.1st)
 
 filter(Result.1stall, p.value<0.05, estimate>0) %>% arrange(estimate)
 filter(Result.1stall, p.value<0.05, estimate<0) %>% arrange(estimate)  
+
+#save(Result.1stall, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_RaceAdjust_CitySpecific.RData')
 ```
+
 Second Stage Analysis
 ```{r include=FALSE}
 
@@ -192,8 +210,10 @@ tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2
 filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
 filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
 
-#save(tlnise.result2, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_RaceStrat_White.RData')
+#save(tlnise.result2, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_RaceAdjust_Species_00to18.RData')
 ```
+
+
 
 Make a plot
 ```{r}
@@ -212,11 +232,11 @@ tlnise.result3 = mutate(tlnise.result2, Name=case_when(Pollutant == 'asalt'~ "Ag
                                                             TRUE ~ 'black'))
                     
 tlnise.result3 = filter(tlnise.result3, Pollutant!='fsalt'& Pollutant!='asalt')
-tlnise.result3$Name[tlnise.result3$Name=='PM2.5'] = '"PM[2.5]"'
+#tlnise.result3$Name[tlnise.result3$Name=='PM2.5'] = '"PM[2.5]"'
 tlnise.result3$Name = factor(tlnise.result3$Name)
-tlnise.result3$Name = relevel(tlnise.result3$Name,'"PM[2.5]"')
+#tlnise.result3$Name = relevel(tlnise.result3$Name,'"PM[2.5]"')
 tlnise.result3$Pollutant = factor(tlnise.result3$Pollutant)
-tlnise.result3$Pollutant = relevel(tlnise.result3$Pollutant,'totpm25')
+#tlnise.result3$Pollutant = relevel(tlnise.result3$Pollutant,'totpm25')
 tlnise.result3$Lag = as.factor(tlnise.result3$Lag)
      
 OutcomeList = select(tlnise.result3, Outcome) %>%

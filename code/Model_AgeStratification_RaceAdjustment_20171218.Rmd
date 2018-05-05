@@ -197,6 +197,8 @@ tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2
 
 filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
 filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
+
+#save(tlnise.result2, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_AgeStrat_65to99_RaceAdjust.RData')
 ```
 
 Make a plot

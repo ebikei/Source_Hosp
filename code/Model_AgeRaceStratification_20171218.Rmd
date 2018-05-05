@@ -77,7 +77,7 @@ AirWeather2 = mutate(AirWeather2, Warm = ifelse(substr(date,6,7) %in% warm, 1, 0
 
 #Create Data for Analysis
 DF = filter(Original_df2, Zone!='C') %>% 
-     filter(Race == 'hispanic', Age == '65to99') %>% 
+     filter(Race == 'hispanic', Age == '00to18') %>% 
      group_by(Name,date, disease) %>%  #Add/Remove varible here in which level I want to analyze
      summarise(Case = sum(measurement)) %>% 
      data.frame() %>%     
@@ -191,6 +191,8 @@ tlnise.result2$UCI=exp((tlnise.result2$PE+1.96*tlnise.result2$SE)*tlnise.result2
 
 filter(tlnise.result2,UCI<1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
 filter(tlnise.result2,LCI>1) %>% arrange(Effect) %>% select(Outcome,Pollutant, Lag, N, IQR, Effect, LCI, UCI)
+
+#save(tlnise.result2, file = 'K:\\Research\\PMSource_Hosp\\Data\\Result\\Result_AgeRaceStrat_00to18_Hispanic.RData')
 ```
 
 Make a plot
@@ -256,5 +258,36 @@ Resp = filter(tlnise.result3, Outcome == 'Resp') %>%
                 panel.grid.minor = element_blank())
 
 grid.arrange(Cardio, Resp, ncol=1)
+
+```
+
+Plot City specific estimates
+
+```{r}
+CitySpecific = Result.1stall %>% 
+     filter(Outcome == 'Resp', Pollutant == 'vehic') %>% 
+     inner_join(Air, by = 'Pollutant') %>% 
+     mutate(Effect = exp(estimate*IQR),
+       LCI = exp((estimate-1.96*std.error)*IQR),
+       UCI = exp((estimate+1.96*std.error)*IQR),               
+       LineCol = case_when(estimate < 0 & p.value < 0.05 ~ 'blue',
+                                   estimate < 0 & p.value < 0.10 ~ 'green',
+                                   estimate > 0 & p.value < 0.05 ~ 'red',
+                                   estimate > 0 & p.value < 0.10 ~ 'orange',
+                                   TRUE ~ 'black')) %>% 
+         ggplot(aes(x=Name,y=Effect,color=LineCol)) +
+          	geom_errorbar(aes(ymin=LCI,ymax=UCI),size=1,width=0.35)+
+          	geom_point(aes(),cex=3.25)+
+               facet_grid(.~Lag)+
+     	     geom_hline(yintercept=1,color='Black')+
+               ylab("OR per IQR increase")+
+               xlab("")+
+               theme_bw()+
+               scale_color_identity()+
+               theme(legend.position="none", plot.title = element_text(hjust = 0.5), 
+                    axis.text.x = element_text(vjust =0.5, angle = 0), panel.grid.major = element_blank(),
+                    panel.grid.minor = element_blank())
+
+CitySpecific
 
 ```
